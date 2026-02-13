@@ -422,10 +422,28 @@ function bindAdminDragEvents() {
 }
 
 function initAdminDragSystem() {
-    initializeAdminDragTargets();
-    restoreAdminLayout();
-    bindAdminDragEvents();
-    syncAdminDragPrivilegeState();
+    try {
+        localStorage.removeItem(ADMIN_LAYOUT_STORAGE_KEY);
+    } catch {
+        // Ignore storage cleanup errors.
+    }
+    document.body.classList.remove('admin-draggable-enabled');
+    ADMIN_DRAGGABLE_TARGETS.forEach(({ selector }) => {
+        const element = document.querySelector(selector);
+        if (!element) return;
+        element.removeAttribute('data-admin-drag-id');
+        element.classList.remove('admin-draggable-target', 'drag-hold-pending', 'dragging');
+        element.style.removeProperty('position');
+        element.style.removeProperty('left');
+        element.style.removeProperty('top');
+        element.style.removeProperty('right');
+        element.style.removeProperty('bottom');
+        element.style.removeProperty('margin');
+        element.style.removeProperty('width');
+        element.style.removeProperty('max-width');
+        element.style.removeProperty('transform');
+        element.style.removeProperty('z-index');
+    });
 }
 
 function normalizeAdminName(name = userProfile.username) {
@@ -729,7 +747,7 @@ function verifyAdminPassword() {
     updateRank();
     renderProfile();
     unlockFeatures();
-    typeText('ADMIN ACCESS GRANTED: Hold any panel for 0.3s to move it.');
+    typeText('ADMIN ACCESS GRANTED: Full control enabled.');
 }
 
 function verifyRecoveryId() {
@@ -769,7 +787,6 @@ function verifyRecoveryId() {
 }
 
 function toggleAdminPanel() {
-    syncAdminDragPrivilegeState();
     if (!adminPanel) return;
     if (isAdminUser()) {
         if (adminToggleBtn) showWithAnimation(adminToggleBtn, 'ui-enter-fade');

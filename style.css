@@ -77,7 +77,7 @@ body::after {
     text-align:center;
     animation: controls-enter 680ms ease-out both;
 }
-.controls button {
+button {
     background: rgba(0,20,40,0.7);
     color:#00ffcc; border:2px solid #00ffcc;
     padding:10px 15px; margin:5px;
