@@ -467,6 +467,187 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
     animation: none;
 }
 
+.mission-game-window {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 92%;
+    max-width: 760px;
+    background: rgba(0, 18, 34, 0.96);
+    border: 2px solid #00ffcc;
+    border-radius: 14px;
+    box-shadow: 0 0 26px rgba(0, 255, 204, 0.75);
+    z-index: 1140;
+    padding: 14px;
+}
+.mission-game-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+.mission-game-title {
+    font-size: 18px;
+    font-weight: bold;
+    letter-spacing: 0.8px;
+}
+.mission-game-subtitle {
+    margin-top: 4px;
+    color: #b8ffee;
+    font-size: 12px;
+}
+#mission-game-close-btn {
+    min-width: 90px;
+    margin: 0;
+    transform: none;
+    animation: none;
+}
+.mission-game-status {
+    margin-top: 12px;
+    margin-bottom: 10px;
+    border: 1px solid rgba(0, 255, 204, 0.35);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.28);
+    padding: 8px 10px;
+    min-height: 22px;
+    font-size: 13px;
+    color: #d5fff3;
+}
+.mission-game-content {
+    min-height: 280px;
+    max-height: 62svh;
+    overflow-y: auto;
+    border: 1px solid rgba(0, 255, 204, 0.2);
+    border-radius: 10px;
+    padding: 12px;
+    background: rgba(2, 9, 20, 0.6);
+}
+.mission-game-content button {
+    transform: none;
+    animation: none;
+}
+
+.reflex-game {
+    display: grid;
+    gap: 14px;
+}
+.reflex-hint {
+    color: #b6fce8;
+    font-size: 13px;
+}
+.reflex-symbol {
+    min-height: 112px;
+    border-radius: 12px;
+    border: 2px dashed rgba(0, 255, 204, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(46px, 8vw, 70px);
+    color: #7affde;
+    background: rgba(0, 0, 0, 0.22);
+    transition: border-color 160ms ease, box-shadow 160ms ease, transform 120ms ease;
+}
+.reflex-symbol.active {
+    border-color: #00ffcc;
+    box-shadow: 0 0 14px rgba(0, 255, 204, 0.45);
+}
+.reflex-symbol.hit {
+    border-color: #7fff8f;
+    box-shadow: 0 0 16px rgba(127, 255, 143, 0.65);
+    transform: scale(1.03);
+}
+.reflex-symbol.wrong,
+.reflex-symbol.miss {
+    border-color: #ff6f87;
+    box-shadow: 0 0 15px rgba(255, 111, 135, 0.55);
+}
+.reflex-buttons {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+.reflex-btn {
+    min-height: 56px;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.memory-game {
+    display: grid;
+    gap: 12px;
+}
+.memory-hint {
+    color: #b6fce8;
+    font-size: 13px;
+}
+.memory-grid {
+    --grid-size: 4;
+    display: grid;
+    grid-template-columns: repeat(var(--grid-size), minmax(0, 1fr));
+    gap: 7px;
+}
+.memory-tile {
+    margin: 0;
+    min-height: 44px;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 255, 204, 0.45);
+    background: rgba(0, 0, 0, 0.22);
+    color: #aefbe8;
+    font-size: 12px;
+    font-weight: bold;
+    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.memory-tile.preview {
+    background: rgba(0, 255, 204, 0.3);
+    border-color: #00ffcc;
+    box-shadow: 0 0 12px rgba(0, 255, 204, 0.45);
+}
+.memory-tile.correct {
+    background: rgba(127, 255, 143, 0.26);
+    border-color: #7fff8f;
+}
+.memory-tile.wrong {
+    background: rgba(255, 111, 135, 0.24);
+    border-color: #ff6f87;
+}
+.memory-grid.memory-grid-6 .memory-tile {
+    min-height: 36px;
+    font-size: 11px;
+}
+
+.logic-game {
+    display: grid;
+    gap: 12px;
+}
+.logic-prompt {
+    line-height: 1.45;
+    font-size: 14px;
+    color: #ddfff5;
+}
+.logic-input-row {
+    display: flex;
+    gap: 8px;
+}
+#mission-game-answer-input {
+    flex: 1;
+    min-width: 0;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 255, 204, 0.45);
+    background: rgba(0, 0, 0, 0.35);
+    color: #e7fff9;
+    padding: 10px 11px;
+    box-sizing: border-box;
+}
+#mission-game-submit-btn {
+    min-width: 104px;
+}
+.logic-feedback {
+    min-height: 18px;
+    color: #b5fff0;
+    font-size: 12px;
+}
+
 .owner-signature {
     position:fixed;
     bottom:10px;
@@ -790,6 +971,36 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
     }
     .mission-list {
         grid-template-columns: 1fr;
+    }
+    .mission-game-window {
+        width: calc(100% - 14px);
+        max-width: none;
+        padding: 10px;
+    }
+    .mission-game-content {
+        min-height: 240px;
+        max-height: 68svh;
+        padding: 10px;
+    }
+    .mission-game-title {
+        font-size: 16px;
+    }
+    .mission-game-subtitle {
+        font-size: 11px;
+    }
+    .reflex-buttons {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .reflex-btn {
+        min-height: 52px;
+        font-size: 22px;
+    }
+    .logic-input-row {
+        flex-direction: column;
+    }
+    #mission-game-submit-btn {
+        width: 100%;
+        min-width: 0;
     }
 
     .yui-dialogue {

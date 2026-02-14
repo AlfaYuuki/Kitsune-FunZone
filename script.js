@@ -13,6 +13,12 @@ const missionSelector = document.getElementById("mission-selector");
 const missionHint = document.getElementById("mission-hint");
 const missionCloseBtn = document.getElementById("mission-close-btn");
 const missionOptionButtons = Array.from(document.querySelectorAll(".mission-btn"));
+const missionGameWindow = document.getElementById("mission-game-window");
+const missionGameTitle = document.getElementById("mission-game-title");
+const missionGameSubtitle = document.getElementById("mission-game-subtitle");
+const missionGameStatus = document.getElementById("mission-game-status");
+const missionGameContent = document.getElementById("mission-game-content");
+const missionGameCloseBtn = document.getElementById("mission-game-close-btn");
 
 /* ================== USER PROFILE (Upgrade 1) ================== */
 const userProfile = {
@@ -68,6 +74,12 @@ const MISSION_EXP_REWARDS = {
     3: 75,
     4: 100
 };
+const MISSION_REQUIREMENTS = {
+    1: 25,
+    2: 50,
+    3: 70,
+    4: 85
+};
 let adminCustomRank = '';
 let isAdminPanelHiddenByUser = false;
 let hasBrain = false;
@@ -99,6 +111,7 @@ const ADMIN_DRAGGABLE_TARGETS = [
 let pendingAdminDragHold = null;
 let activeAdminDrag = null;
 let adminDragEventsBound = false;
+let activeMissionGame = null;
 
 function clearUiAnimationClasses(element) {
     if (!element) return;
@@ -153,47 +166,162 @@ function hasUsername() {
 }
 
 function getMissionRequiredMentalHealth(level) {
-    if (level === 1) return 25;
-    if (level === 2) return 50;
-    if (level === 3) return 75;
-    if (level === 4) return 85;
-    return 100;
+    return MISSION_REQUIREMENTS[level] || 100;
 }
 
 function getMaxUnlockedMissionLevel() {
     if (!hasBrain) return 0;
     const mh = Math.max(0, Math.min(100, Number.parseInt(userProfile.mentalHealth, 10) || 0));
-    if (mh >= 85) return 4;
-    if (mh >= 75) return 3;
-    if (mh >= 50) return 2;
-    if (mh >= 25) return 1;
+    if (mh >= MISSION_REQUIREMENTS[4]) return 4;
+    if (mh >= MISSION_REQUIREMENTS[3]) return 3;
+    if (mh >= MISSION_REQUIREMENTS[2]) return 2;
+    if (mh >= MISSION_REQUIREMENTS[1]) return 1;
     return 0;
 }
 
 function getMissionAccessHint(maxLevel = getMaxUnlockedMissionLevel()) {
     if (maxLevel >= 4) return 'All mission levels unlocked.';
     if (maxLevel === 3) return 'Unlocked: Level 1-3. Reach 85% mental health for Level 4.';
-    if (maxLevel === 2) return 'Unlocked: Level 1-2. Reach 75% mental health for Level 3.';
+    if (maxLevel === 2) return 'Unlocked: Level 1-2. Reach 70% mental health for Level 3.';
     if (maxLevel === 1) return 'Unlocked: Level 1. Reach 50% mental health for Level 2.';
     return 'Missions are locked. Reach at least 25% mental health.';
+}
+
+function formatMissionTime(totalSeconds) {
+    const clamped = Math.max(0, Number.parseInt(totalSeconds, 10) || 0);
+    const minutes = Math.floor(clamped / 60);
+    const seconds = clamped % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function normalizeMissionAnswer(value) {
+    return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function setMissionGameStatus(text) {
+    if (!missionGameStatus) return;
+    missionGameStatus.textContent = text;
+}
+
+function clearMissionGameContent() {
+    if (!missionGameContent) return;
+    missionGameContent.innerHTML = '';
+}
+
+function createMissionRuntime(level) {
+    return {
+        level,
+        active: true,
+        ended: false,
+        timeouts: [],
+        intervals: []
+    };
+}
+
+function runtimeSetTimeout(runtime, callback, delayMs) {
+    if (!runtime || !runtime.active) return null;
+    const timeoutId = window.setTimeout(() => {
+        if (!runtime.active) return;
+        callback();
+    }, delayMs);
+    runtime.timeouts.push(timeoutId);
+    return timeoutId;
+}
+
+function runtimeSetInterval(runtime, callback, delayMs) {
+    if (!runtime || !runtime.active) return null;
+    const intervalId = window.setInterval(() => {
+        if (!runtime.active) return;
+        callback();
+    }, delayMs);
+    runtime.intervals.push(intervalId);
+    return intervalId;
+}
+
+function clearMissionRuntime(runtime) {
+    if (!runtime) return;
+    runtime.active = false;
+    runtime.timeouts.forEach((timeoutId) => clearTimeout(timeoutId));
+    runtime.intervals.forEach((intervalId) => clearInterval(intervalId));
+    runtime.timeouts = [];
+    runtime.intervals = [];
+}
+
+function getActiveMissionRuntime(level) {
+    if (!activeMissionGame) return null;
+    if (typeof level === 'number' && activeMissionGame.level !== level) return null;
+    return activeMissionGame;
+}
+
+function closeMissionGameWindow({ silent = false } = {}) {
+    const wasVisible = Boolean(missionGameWindow && !missionGameWindow.classList.contains('hidden'));
+    if (activeMissionGame) {
+        clearMissionRuntime(activeMissionGame);
+        activeMissionGame = null;
+    }
+    if (wasVisible && missionGameWindow) hideWithAnimation(missionGameWindow, 'ui-exit-pop');
+    if (!silent && wasVisible) typeText('Mission closed.');
+}
+
+function openMissionGameWindow(level, title, subtitle = '') {
+    if (!missionGameWindow || !missionGameContent) return null;
+    if (activeMissionGame) {
+        clearMissionRuntime(activeMissionGame);
+        activeMissionGame = null;
+    }
+    const runtime = createMissionRuntime(level);
+    activeMissionGame = runtime;
+    if (missionGameTitle) missionGameTitle.textContent = title;
+    if (missionGameSubtitle) missionGameSubtitle.textContent = subtitle;
+    setMissionGameStatus('Initializing mission...');
+    clearMissionGameContent();
+    clearUiAnimationClasses(missionGameWindow);
+    missionGameWindow.classList.remove('hidden');
+    if (!prefersReducedMotion) {
+        void missionGameWindow.offsetWidth;
+        missionGameWindow.classList.add('ui-enter-pop');
+    }
+    return runtime;
+}
+
+function endMissionRun(level, passed, detailText = '') {
+    const runtime = getActiveMissionRuntime(level);
+    if (!runtime || runtime.ended) return;
+    runtime.ended = true;
+    clearMissionRuntime(runtime);
+
+    const reward = MISSION_EXP_REWARDS[level] || 0;
+    if (passed) {
+        addExp(reward);
+        setMissionGameStatus(`Mission Level ${level} clear. +${reward} EXP${detailText ? ` | ${detailText}` : ''}`);
+        typeText(`Mission Level ${level} complete! +${reward} EXP`);
+    } else {
+        const failNote = detailText ? ` ${detailText}` : '';
+        setMissionGameStatus(`Mission Level ${level} failed.${failNote}`);
+        typeText(`Mission Level ${level} failed.${failNote}`);
+    }
+    updateMissionSelectorAvailability();
+    window.setTimeout(() => {
+        if (activeMissionGame === runtime) closeMissionGameWindow({ silent: true });
+    }, 1300);
 }
 
 function updateMissionSelectorAvailability() {
     const usernameReady = hasUsername();
     const maxLevel = getMaxUnlockedMissionLevel();
 
-    if (missionsBtn) {
-        missionsBtn.disabled = !usernameReady || maxLevel <= 0;
-    }
-
+    if (missionsBtn) missionsBtn.disabled = !usernameReady || maxLevel <= 0;
     missionOptionButtons.forEach((btn) => {
         const level = Number.parseInt(btn.dataset.missionLevel || '0', 10);
         const unlocked = usernameReady && level > 0 && level <= maxLevel;
         btn.disabled = !unlocked;
         btn.classList.toggle('locked', !unlocked);
     });
-
     if (missionHint) missionHint.textContent = getMissionAccessHint(maxLevel);
+
+    if ((!usernameReady || maxLevel <= 0) && activeMissionGame) {
+        closeMissionGameWindow({ silent: true });
+    }
 }
 
 function hideMissionSelector() {
@@ -212,6 +340,556 @@ function showMissionSelector() {
     showWithAnimation(missionSelector, 'ui-enter-pop');
 }
 
+function runReflexChallenge(runtime, options, onComplete) {
+    if (!runtime || !runtime.active || !missionGameContent) return;
+    const symbols = ['▲', '■', '●', '◆'];
+    const durationSec = Math.max(5, Number.parseInt(options.durationSec, 10) || 30);
+    const reactionMs = Math.max(500, Number.parseInt(options.reactionMs, 10) || 1500);
+    const passScore = Math.max(1, Number.parseInt(options.passScore, 10) || 15);
+    const minSpawnMs = Math.max(240, Number.parseInt(options.minSpawnMs, 10) || 650);
+    const maxSpawnMs = Math.max(minSpawnMs + 40, Number.parseInt(options.maxSpawnMs, 10) || 1100);
+
+    clearMissionGameContent();
+    const gameWrap = document.createElement('div');
+    gameWrap.className = 'reflex-game';
+    const hint = document.createElement('div');
+    hint.className = 'reflex-hint';
+    hint.textContent = options.hint || 'Press the matching symbol as fast as possible.';
+    const symbolDisplay = document.createElement('div');
+    symbolDisplay.className = 'reflex-symbol';
+    symbolDisplay.textContent = '?';
+    const buttonGrid = document.createElement('div');
+    buttonGrid.className = 'reflex-buttons';
+    gameWrap.appendChild(hint);
+    gameWrap.appendChild(symbolDisplay);
+    gameWrap.appendChild(buttonGrid);
+    missionGameContent.appendChild(gameWrap);
+
+    let ended = false;
+    let timeLeft = durationSec;
+    let score = 0;
+    let awaiting = false;
+    let currentSymbol = '';
+    let responseToken = 0;
+
+    const buildStatus = () => {
+        const prefix = typeof options.getStatusPrefix === 'function' ? options.getStatusPrefix() : '';
+        const lead = prefix ? `${prefix} | ` : '';
+        return `${lead}Time ${timeLeft}s | Score ${score}/${passScore}`;
+    };
+
+    const finish = () => {
+        if (ended || !runtime.active) return;
+        ended = true;
+        onComplete({
+            passed: score >= passScore,
+            score,
+            passScore
+        });
+    };
+
+    const scheduleNextFlash = () => {
+        if (ended || !runtime.active || timeLeft <= 0) return;
+        const delay = Math.floor(Math.random() * (maxSpawnMs - minSpawnMs + 1)) + minSpawnMs;
+        runtimeSetTimeout(runtime, flashSymbol, delay);
+    };
+
+    const flashSymbol = () => {
+        if (ended || !runtime.active || timeLeft <= 0) return;
+        responseToken++;
+        const myToken = responseToken;
+        awaiting = true;
+        currentSymbol = symbols[Math.floor(Math.random() * symbols.length)];
+        symbolDisplay.textContent = currentSymbol;
+        symbolDisplay.classList.remove('hit', 'wrong', 'miss');
+        symbolDisplay.classList.add('active');
+        setMissionGameStatus(buildStatus());
+
+        runtimeSetTimeout(runtime, () => {
+            if (ended || !runtime.active || !awaiting || myToken !== responseToken) return;
+            awaiting = false;
+            symbolDisplay.classList.remove('active');
+            symbolDisplay.classList.add('miss');
+            runtimeSetTimeout(runtime, () => symbolDisplay.classList.remove('miss'), 170);
+            scheduleNextFlash();
+        }, reactionMs);
+    };
+
+    symbols.forEach((symbol) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'reflex-btn';
+        btn.textContent = symbol;
+        btn.addEventListener('click', () => {
+            if (ended || !runtime.active || !awaiting || timeLeft <= 0) return;
+            responseToken++;
+            awaiting = false;
+            symbolDisplay.classList.remove('active');
+            if (symbol === currentSymbol) {
+                score++;
+                symbolDisplay.classList.remove('wrong', 'miss');
+                symbolDisplay.classList.add('hit');
+                runtimeSetTimeout(runtime, () => symbolDisplay.classList.remove('hit'), 170);
+            } else {
+                symbolDisplay.classList.remove('hit', 'miss');
+                symbolDisplay.classList.add('wrong');
+                runtimeSetTimeout(runtime, () => symbolDisplay.classList.remove('wrong'), 170);
+            }
+            setMissionGameStatus(buildStatus());
+            scheduleNextFlash();
+        });
+        buttonGrid.appendChild(btn);
+    });
+
+    runtimeSetInterval(runtime, () => {
+        if (ended || !runtime.active) return;
+        timeLeft--;
+        if (timeLeft <= 0) {
+            timeLeft = 0;
+            setMissionGameStatus(buildStatus());
+            finish();
+            return;
+        }
+        setMissionGameStatus(buildStatus());
+    }, 1000);
+
+    setMissionGameStatus(buildStatus());
+    runtimeSetTimeout(runtime, flashSymbol, 380);
+}
+
+function runMemoryChallenge(runtime, options, onComplete) {
+    if (!runtime || !runtime.active || !missionGameContent) return;
+    const gridSize = Math.max(2, Number.parseInt(options.gridSize, 10) || 4);
+    const rounds = Math.max(1, Number.parseInt(options.rounds, 10) || 3);
+    const baseLength = Math.max(2, Number.parseInt(options.baseLength, 10) || 5);
+    const roundIncrement = Number.parseInt(options.roundIncrement, 10) || 1;
+    const showDurationMs = Math.max(1500, Number.parseInt(options.showDurationMs, 10) || 5000);
+    const failOnMistake = Boolean(options.failOnMistake);
+    const tilesCount = gridSize * gridSize;
+
+    clearMissionGameContent();
+    const gameWrap = document.createElement('div');
+    gameWrap.className = 'memory-game';
+    const hint = document.createElement('div');
+    hint.className = 'memory-hint';
+    hint.textContent = options.hint || 'Watch the pattern, then click tiles in the same order.';
+    const grid = document.createElement('div');
+    grid.className = `memory-grid ${gridSize >= 6 ? 'memory-grid-6' : 'memory-grid-4'}`;
+    grid.style.setProperty('--grid-size', String(gridSize));
+    gameWrap.appendChild(hint);
+    gameWrap.appendChild(grid);
+    missionGameContent.appendChild(gameWrap);
+
+    const tiles = [];
+    let ended = false;
+    let round = 1;
+    let pattern = [];
+    let playerIndex = 0;
+    let acceptingInput = false;
+
+    const buildStatus = (extra = '') => {
+        const prefix = typeof options.getStatusPrefix === 'function' ? options.getStatusPrefix() : '';
+        const lead = prefix ? `${prefix} | ` : '';
+        const base = `${lead}Round ${round}/${rounds}`;
+        return extra ? `${base} | ${extra}` : base;
+    };
+
+    const clearTileStates = () => {
+        tiles.forEach((tile) => tile.classList.remove('preview', 'correct', 'wrong'));
+    };
+
+    const finish = (passed, reason = '') => {
+        if (ended || !runtime.active) return;
+        ended = true;
+        onComplete({
+            passed,
+            reason
+        });
+    };
+
+    const startRound = () => {
+        if (ended || !runtime.active) return;
+        acceptingInput = false;
+        playerIndex = 0;
+        clearTileStates();
+
+        const patternLength = Math.max(2, baseLength + (round - 1) * roundIncrement);
+        pattern = Array.from({ length: patternLength }, () => Math.floor(Math.random() * tilesCount));
+        const stepMs = Math.max(210, Math.floor(showDurationMs / Math.max(pattern.length, 1)));
+
+        setMissionGameStatus(buildStatus(`Memorize ${patternLength} tiles`));
+        pattern.forEach((tileIndex, sequenceIndex) => {
+            runtimeSetTimeout(runtime, () => {
+                if (ended || !runtime.active) return;
+                const tile = tiles[tileIndex];
+                if (!tile) return;
+                tile.classList.add('preview');
+                runtimeSetTimeout(runtime, () => {
+                    if (tile) tile.classList.remove('preview');
+                }, Math.max(120, Math.floor(stepMs * 0.65)));
+            }, sequenceIndex * stepMs);
+        });
+
+        runtimeSetTimeout(runtime, () => {
+            if (ended || !runtime.active) return;
+            acceptingInput = true;
+            setMissionGameStatus(buildStatus(`Repeat the full pattern`));
+        }, showDurationMs + 80);
+    };
+
+    for (let i = 0; i < tilesCount; i++) {
+        const tile = document.createElement('button');
+        tile.type = 'button';
+        tile.className = 'memory-tile';
+        tile.textContent = String(i + 1);
+        tile.addEventListener('click', () => {
+            if (!acceptingInput || ended || !runtime.active) return;
+            const expected = pattern[playerIndex];
+            if (i === expected) {
+                tile.classList.add('correct');
+                runtimeSetTimeout(runtime, () => tile.classList.remove('correct'), 180);
+                playerIndex++;
+                if (playerIndex >= pattern.length) {
+                    acceptingInput = false;
+                    if (round >= rounds) {
+                        finish(true);
+                        return;
+                    }
+                    setMissionGameStatus(buildStatus('Round clear'));
+                    round++;
+                    runtimeSetTimeout(runtime, startRound, 700);
+                }
+            } else {
+                tile.classList.add('wrong');
+                runtimeSetTimeout(runtime, () => tile.classList.remove('wrong'), 240);
+                acceptingInput = false;
+                if (failOnMistake) {
+                    finish(false, `Mistake on round ${round}`);
+                    return;
+                }
+                setMissionGameStatus(buildStatus('Wrong tile. Round reset.'));
+                runtimeSetTimeout(runtime, startRound, 1000);
+            }
+        });
+        tiles.push(tile);
+        grid.appendChild(tile);
+    }
+
+    setMissionGameStatus(buildStatus('Get ready'));
+    runtimeSetTimeout(runtime, startRound, 320);
+}
+
+function runLogicChallenge(runtime, options, onComplete) {
+    if (!runtime || !runtime.active || !missionGameContent) return;
+    const puzzles = Array.isArray(options.puzzles) ? options.puzzles : [];
+    if (!puzzles.length) {
+        onComplete({ passed: false, reason: 'No puzzles configured' });
+        return;
+    }
+    const totalSeconds = Number.parseInt(options.totalSeconds, 10);
+    const hasTimer = Number.isFinite(totalSeconds) && totalSeconds > 0;
+    const maxWrongAttemptsRaw = Number.parseInt(options.maxWrongAttempts, 10);
+    const maxWrongAttempts = Number.isFinite(maxWrongAttemptsRaw) && maxWrongAttemptsRaw > 0
+        ? maxWrongAttemptsRaw
+        : Number.POSITIVE_INFINITY;
+
+    clearMissionGameContent();
+    const gameWrap = document.createElement('div');
+    gameWrap.className = 'logic-game';
+    const prompt = document.createElement('div');
+    prompt.className = 'logic-prompt';
+    const inputRow = document.createElement('div');
+    inputRow.className = 'logic-input-row';
+    const answerInput = document.createElement('input');
+    answerInput.id = 'mission-game-answer-input';
+    answerInput.type = 'text';
+    answerInput.placeholder = 'Enter answer';
+    const submitBtn = document.createElement('button');
+    submitBtn.id = 'mission-game-submit-btn';
+    submitBtn.type = 'button';
+    submitBtn.textContent = 'Submit';
+    const feedback = document.createElement('div');
+    feedback.className = 'logic-feedback';
+    inputRow.appendChild(answerInput);
+    inputRow.appendChild(submitBtn);
+    gameWrap.appendChild(prompt);
+    gameWrap.appendChild(inputRow);
+    gameWrap.appendChild(feedback);
+    missionGameContent.appendChild(gameWrap);
+
+    let ended = false;
+    let index = 0;
+    let wrongAttempts = 0;
+    let timeLeft = hasTimer ? totalSeconds : 0;
+
+    const buildStatus = () => {
+        const prefix = typeof options.getStatusPrefix === 'function' ? options.getStatusPrefix() : '';
+        const lead = prefix ? `${prefix} | ` : '';
+        const puzzleLabel = `Puzzle ${Math.min(index + 1, puzzles.length)}/${puzzles.length}`;
+        if (!hasTimer) return `${lead}${puzzleLabel}`;
+        return `${lead}${puzzleLabel} | Time ${formatMissionTime(timeLeft)}`;
+    };
+
+    const finish = (passed, reason = '') => {
+        if (ended || !runtime.active) return;
+        ended = true;
+        onComplete({
+            passed,
+            reason
+        });
+    };
+
+    const renderPuzzle = () => {
+        if (ended || !runtime.active) return;
+        const current = puzzles[index];
+        prompt.textContent = current.prompt;
+        feedback.textContent = '';
+        answerInput.value = '';
+        setMissionGameStatus(buildStatus());
+        answerInput.focus();
+    };
+
+    const isCorrectAnswer = (puzzle, value) => {
+        if (typeof puzzle.validate === 'function') return puzzle.validate(value);
+        return normalizeMissionAnswer(value) === normalizeMissionAnswer(puzzle.answer);
+    };
+
+    const submit = () => {
+        if (ended || !runtime.active) return;
+        const current = puzzles[index];
+        const value = answerInput.value.trim();
+        if (!value.length) {
+            feedback.textContent = 'Enter an answer first.';
+            return;
+        }
+
+        if (isCorrectAnswer(current, value)) {
+            index++;
+            if (index >= puzzles.length) {
+                finish(true);
+                return;
+            }
+            feedback.textContent = 'Correct. Next lock opened.';
+            renderPuzzle();
+            return;
+        }
+
+        wrongAttempts++;
+        if (wrongAttempts >= maxWrongAttempts) {
+            finish(false, 'Too many wrong answers');
+            return;
+        }
+        feedback.textContent = `Wrong answer. Try again (${wrongAttempts}/${maxWrongAttempts === Number.POSITIVE_INFINITY ? 'INF' : maxWrongAttempts}).`;
+        answerInput.focus();
+        answerInput.select();
+    };
+
+    submitBtn.addEventListener('click', submit);
+    answerInput.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        submit();
+    });
+
+    if (hasTimer) {
+        runtimeSetInterval(runtime, () => {
+            if (ended || !runtime.active) return;
+            timeLeft--;
+            if (timeLeft <= 0) {
+                timeLeft = 0;
+                setMissionGameStatus(buildStatus());
+                finish(false, 'Time limit reached');
+                return;
+            }
+            setMissionGameStatus(buildStatus());
+        }, 1000);
+    }
+
+    renderPuzzle();
+}
+
+function startMissionLevel1() {
+    const runtime = openMissionGameWindow(
+        1,
+        'Level 1 - Quick Reflex Trial',
+        'Easy | 30s timer | React in under 1.5s | Need 15 points'
+    );
+    if (!runtime) return;
+    runReflexChallenge(runtime, {
+        durationSec: 30,
+        reactionMs: 1500,
+        passScore: 15,
+        minSpawnMs: 680,
+        maxSpawnMs: 1060,
+        hint: 'Tap the button that matches the flashing symbol.'
+    }, (result) => {
+        if (!result) return;
+        if (result.passed) endMissionRun(1, true, `Reflex score ${result.score}/${result.passScore}`);
+        else endMissionRun(1, false, `Reflex score ${result.score}/${result.passScore}. Need at least 15.`);
+    });
+}
+
+function startMissionLevel2() {
+    const runtime = openMissionGameWindow(
+        2,
+        'Level 2 - Memory Grid Challenge',
+        'Medium | 4x4 grid | Pattern shown for 5s | Clear 3 rounds'
+    );
+    if (!runtime) return;
+    runMemoryChallenge(runtime, {
+        gridSize: 4,
+        rounds: 3,
+        baseLength: 5,
+        roundIncrement: 1,
+        showDurationMs: 5000,
+        failOnMistake: false,
+        hint: 'Repeat the highlighted tiles in exact order. One mistake resets the round.'
+    }, (result) => {
+        if (!result) return;
+        if (result.passed) endMissionRun(2, true, 'All 3 rounds completed');
+        else endMissionRun(2, false, result.reason || 'Memory challenge failed');
+    });
+}
+
+function startMissionLevel3() {
+    const runtime = openMissionGameWindow(
+        3,
+        'Level 3 - Logic Lock System',
+        'Hard | Solve 3 puzzles in 5 minutes'
+    );
+    if (!runtime) return;
+    runLogicChallenge(runtime, {
+        totalSeconds: 300,
+        puzzles: [
+            {
+                prompt: 'Math Lock: ((12 + 6) x 2) - 5 = ?',
+                answer: '31'
+            },
+            {
+                prompt: 'Pattern Lock: 2, 6, 12, 20, 30, ?',
+                answer: '42'
+            },
+            {
+                prompt: 'Code Lock: A1Z26 -> 11-9-20-19-21-14-5. Enter the word.',
+                validate: (value) => normalizeMissionAnswer(value) === 'KITSUNE'
+            }
+        ]
+    }, (result) => {
+        if (!result) return;
+        if (result.passed) endMissionRun(3, true, 'Digital vault unlocked');
+        else endMissionRun(3, false, result.reason || 'Vault lock failed');
+    });
+}
+
+function startMissionLevel4() {
+    const runtime = openMissionGameWindow(
+        4,
+        'Level 4 - Elite Survival Gauntlet',
+        'Extreme | 3 stages | 10-minute total timer | 2 mistakes max'
+    );
+    if (!runtime) return;
+
+    const state = {
+        stage: 1,
+        mistakes: 0,
+        totalTimeLeft: 600
+    };
+
+    const getPrefix = () => `Stage ${state.stage}/3 | Mistakes ${state.mistakes}/2 | Total ${formatMissionTime(state.totalTimeLeft)}`;
+
+    runtimeSetInterval(runtime, () => {
+        const active = getActiveMissionRuntime(4);
+        if (!active || active.ended) return;
+        state.totalTimeLeft--;
+        if (state.totalTimeLeft <= 0) {
+            state.totalTimeLeft = 0;
+            endMissionRun(4, false, 'Time limit reached');
+            return;
+        }
+        setMissionGameStatus(`${getPrefix()} | In progress`);
+    }, 1000);
+
+    const handleStageResult = (result) => {
+        const active = getActiveMissionRuntime(4);
+        if (!active || active.ended || !result) return;
+        if (result.passed) {
+            state.stage++;
+            if (state.stage > 3) {
+                endMissionRun(4, true, 'All stages cleared');
+                return;
+            }
+            runtimeSetTimeout(runtime, launchStage, 640);
+            return;
+        }
+        state.mistakes++;
+        if (state.mistakes >= 2) {
+            endMissionRun(4, false, 'Failed twice. Gauntlet restart required.');
+            return;
+        }
+        setMissionGameStatus(`${getPrefix()} | Stage failed. One retry left.`);
+        runtimeSetTimeout(runtime, launchStage, 900);
+    };
+
+    const launchStage = () => {
+        const active = getActiveMissionRuntime(4);
+        if (!active || active.ended) return;
+        if (state.stage === 1) {
+            runReflexChallenge(runtime, {
+                durationSec: 20,
+                reactionMs: 1000,
+                passScore: 14,
+                minSpawnMs: 420,
+                maxSpawnMs: 760,
+                getStatusPrefix: getPrefix,
+                hint: 'Stage 1: Advanced Reflex. Faster symbols than Level 1.'
+            }, handleStageResult);
+            return;
+        }
+        if (state.stage === 2) {
+            runMemoryChallenge(runtime, {
+                gridSize: 6,
+                rounds: 1,
+                baseLength: 10,
+                roundIncrement: 0,
+                showDurationMs: 6000,
+                failOnMistake: true,
+                getStatusPrefix: getPrefix,
+                hint: 'Stage 2: 6x6 Memory Grid. One mistake fails this stage.'
+            }, handleStageResult);
+            return;
+        }
+        runLogicChallenge(runtime, {
+            totalSeconds: 0,
+            maxWrongAttempts: 2,
+            getStatusPrefix: getPrefix,
+            puzzles: [
+                {
+                    prompt: 'Hidden Clue A: A1Z26 -> 11-9-20',
+                    answer: 'KIT'
+                },
+                {
+                    prompt: 'Hidden Clue B: Reverse the text "ENUS".',
+                    answer: 'SUNE'
+                },
+                {
+                    prompt: 'Final Tactical Code: Combine Clue A + Clue B.',
+                    validate: (value) => normalizeMissionAnswer(value) === 'KITSUNE'
+                }
+            ]
+        }, handleStageResult);
+    };
+
+    setMissionGameStatus(`${getPrefix()} | Initializing`);
+    launchStage();
+}
+
+function launchMissionLevel(level) {
+    if (level === 1) startMissionLevel1();
+    else if (level === 2) startMissionLevel2();
+    else if (level === 3) startMissionLevel3();
+    else if (level === 4) startMissionLevel4();
+}
+
 function completeSelectedMission(level) {
     if (!requireUsername()) return;
     const parsedLevel = Number.parseInt(level, 10);
@@ -223,13 +901,8 @@ function completeSelectedMission(level) {
         typeText(`Mission Level ${parsedLevel} is locked. Reach ${requiredMh}% mental health.`);
         return;
     }
-
-    const reward = MISSION_EXP_REWARDS[parsedLevel] || 0;
-    if (reward <= 0) return;
-
-    addExp(reward);
-    typeText(`Mission Level ${parsedLevel} complete! +${reward} EXP`);
-    updateMissionSelectorAvailability();
+    hideMissionSelector();
+    launchMissionLevel(parsedLevel);
 }
 
 function readAdminLayoutMap() {
@@ -1003,6 +1676,10 @@ function runAutoBugFix({ silent = true } = {}) {
             fixes.push('Synced Missions button state');
         }
     }
+    if ((!usernameReady || getMaxUnlockedMissionLevel() <= 0) && activeMissionGame) {
+        closeMissionGameWindow({ silent: true });
+        fixes.push('Closed inaccessible mission game');
+    }
 
     // Keep admin surfaces in sync.
     toggleAdminPanel();
@@ -1097,6 +1774,7 @@ function lockFeatures() {
         btn.disabled = true;
     });
     hideMissionSelector();
+    closeMissionGameWindow({ silent: true });
     hideAdminPasswordPanel();
     toggleAdminPanel();
     updateMissionSelectorAvailability();
@@ -1149,6 +1827,7 @@ function renderProfile() {
 function showRegisterPanel() {
     if (!registerPanel) return;
     hideMissionSelector();
+    closeMissionGameWindow({ silent: true });
     hideAdminPasswordPanel();
     showWithAnimation(registerPanel, 'ui-enter-rise');
     // small delay to allow it to appear then focus
@@ -1199,6 +1878,7 @@ if (adminApplyBtn) adminApplyBtn.addEventListener('click', applyAdminChanges);
 if (adminToggleBtn) adminToggleBtn.addEventListener('click', toggleAdminPanelVisibility);
 if (missionsBtn) missionsBtn.addEventListener('click', showMissionSelector);
 if (missionCloseBtn) missionCloseBtn.addEventListener('click', hideMissionSelector);
+if (missionGameCloseBtn) missionGameCloseBtn.addEventListener('click', () => closeMissionGameWindow());
 missionOptionButtons.forEach((btn) => {
     btn.addEventListener('click', () => completeSelectedMission(btn.dataset.missionLevel));
 });
@@ -1568,7 +2248,7 @@ function buildPostQuizDialogueSet() {
         };
     }
 
-    if (mh >= 75) {
+    if (mh >= 70) {
         return {
             lines: [
                 `Yui: Nice progress, you are at ${mh}% mental health.`,
@@ -1585,7 +2265,7 @@ function buildPostQuizDialogueSet() {
             lines: [
                 `Yui: Good job. Your mental health is ${mh}%.`,
                 "Yui: You can access Mission Level 1 and Level 2 now.",
-                "Yui: Reach 75% to unlock Mission Level 3.",
+                "Yui: Reach 70% to unlock Mission Level 3.",
                 "Yui: Keep improving to increase your level and rank."
             ],
             poses: ["pose-happy", "pose-guide", "pose-alert", "pose-point"]
