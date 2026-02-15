@@ -1587,6 +1587,14 @@ function parseIntSafe(value, fallback, min, max) {
 const AUTO_BUG_FIX_INTERVAL_MS = 8000;
 let autoBugFixTimer = null;
 let autoBugFixIntervalMs = AUTO_BUG_FIX_INTERVAL_MS;
+const BUG_REPORT_STORAGE_KEY = 'kitsune_bug_reports_v1';
+const BUG_REPORT_LIMIT = 120;
+let bugReports = [];
+let bugReportCounter = 0;
+let bugReporterAutoCaptureEnabled = false;
+let bugReporterErrorHandler = null;
+let bugReporterRejectionHandler = null;
+let bugReporterReentryGuard = false;
 
 function runAutoBugFix({ silent = true } = {}) {
     const fixes = [];
@@ -1724,6 +1732,334 @@ const autoBugFixAPI = {
 };
 
 window.autoBugFixAPI = autoBugFixAPI;
+
+function safeSerializeBugDetails(value) {
+    if (typeof value === 'undefined') return '';
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return String(value);
+    }
+}
+
+function sanitizeBugReportEntry(rawEntry) {
+    if (!rawEntry || typeof rawEntry !== 'object') return null;
+    const id = Math.max(1, Number.parseInt(rawEntry.id, 10) || 0);
+    const timestamp = typeof rawEntry.timestamp === 'string' && rawEntry.timestamp
+        ? rawEntry.timestamp
+        : new Date().toISOString();
+    const message = typeof rawEntry.message === 'string' && rawEntry.message.trim()
+        ? rawEntry.message.trim()
+        : 'Unspecified bug report';
+    const source = typeof rawEntry.source === 'string' && rawEntry.source.trim()
+        ? rawEntry.source.trim()
+        : 'manual';
+    const severity = typeof rawEntry.severity === 'string' && rawEntry.severity.trim()
+        ? rawEntry.severity.trim().toUpperCase()
+        : 'MEDIUM';
+    const details = safeSerializeBugDetails(rawEntry.details);
+    const profile = rawEntry.profile && typeof rawEntry.profile === 'object'
+        ? safeSerializeBugDetails(rawEntry.profile)
+        : {};
+    const autoFix = rawEntry.autoFix && typeof rawEntry.autoFix === 'object'
+        ? {
+            fixedCount: Math.max(0, Number.parseInt(rawEntry.autoFix.fixedCount, 10) || 0),
+            fixes: Array.isArray(rawEntry.autoFix.fixes) ? rawEntry.autoFix.fixes.slice(0, 50) : [],
+            ranAt: typeof rawEntry.autoFix.ranAt === 'string' ? rawEntry.autoFix.ranAt : ''
+        }
+        : null;
+
+    return {
+        id,
+        timestamp,
+        source,
+        severity,
+        message,
+        details,
+        profile,
+        autoFix
+    };
+}
+
+function readBugReportsFromStorage() {
+    try {
+        const raw = localStorage.getItem(BUG_REPORT_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map(sanitizeBugReportEntry)
+            .filter(Boolean)
+            .slice(-BUG_REPORT_LIMIT);
+    } catch {
+        return [];
+    }
+}
+
+function writeBugReportsToStorage() {
+    try {
+        const trimmed = bugReports.slice(-BUG_REPORT_LIMIT);
+        localStorage.setItem(BUG_REPORT_STORAGE_KEY, JSON.stringify(trimmed));
+    } catch {
+        // Ignore storage errors.
+    }
+}
+
+function getBugReportProfileSnapshot() {
+    return {
+        username: userProfile.username || '',
+        level: userProfile.level,
+        exp: userProfile.exp,
+        rank: userProfile.rank,
+        mentalHealth: userProfile.mentalHealth,
+        hasBrain,
+        isAdminVerified,
+        maxUnlockedMissionLevel: getMaxUnlockedMissionLevel(),
+        activeMissionLevel: activeMissionGame ? activeMissionGame.level : null
+    };
+}
+
+function normalizeBugReportPayload(input) {
+    if (typeof input === 'string') {
+        return {
+            message: input,
+            source: 'manual',
+            severity: 'MEDIUM',
+            details: {}
+        };
+    }
+
+    if (input instanceof Error) {
+        return {
+            message: input.message || input.name || 'Error object reported',
+            source: 'error-object',
+            severity: 'HIGH',
+            details: {
+                name: input.name || 'Error',
+                stack: input.stack || ''
+            }
+        };
+    }
+
+    if (input && typeof input === 'object') {
+        const payload = input;
+        return {
+            message: typeof payload.message === 'string' && payload.message.trim()
+                ? payload.message.trim()
+                : 'Unspecified bug report',
+            source: typeof payload.source === 'string' && payload.source.trim()
+                ? payload.source.trim()
+                : 'manual',
+            severity: typeof payload.severity === 'string' && payload.severity.trim()
+                ? payload.severity.trim().toUpperCase()
+                : 'MEDIUM',
+            details: typeof payload.details !== 'undefined' ? payload.details : payload
+        };
+    }
+
+    return {
+        message: 'Unknown bug report payload',
+        source: 'manual',
+        severity: 'LOW',
+        details: { payloadType: typeof input }
+    };
+}
+
+function pushBugReportEntry(entry) {
+    bugReports.push(entry);
+    if (bugReports.length > BUG_REPORT_LIMIT) {
+        bugReports = bugReports.slice(-BUG_REPORT_LIMIT);
+    }
+    writeBugReportsToStorage();
+}
+
+function reportBugToAutoFix(input, options = {}) {
+    const normalized = normalizeBugReportPayload(input);
+    bugReportCounter++;
+
+    const entry = sanitizeBugReportEntry({
+        id: bugReportCounter,
+        timestamp: new Date().toISOString(),
+        source: normalized.source,
+        severity: normalized.severity,
+        message: normalized.message,
+        details: normalized.details,
+        profile: getBugReportProfileSnapshot(),
+        autoFix: null
+    });
+    if (!entry) return { report: null, fixResult: null };
+    pushBugReportEntry(entry);
+
+    let fixResult = null;
+    const shouldAutoFix = options.autoFix !== false;
+    if (shouldAutoFix) {
+        const fixSilent = options.fixSilent !== false;
+        fixResult = autoBugFixAPI.run({ silent: fixSilent });
+        entry.autoFix = {
+            fixedCount: fixResult.fixedCount,
+            fixes: Array.isArray(fixResult.fixes) ? fixResult.fixes.slice(0, 50) : [],
+            ranAt: new Date().toISOString()
+        };
+        writeBugReportsToStorage();
+    }
+
+    if (!options.silent) {
+        const fixedCount = fixResult ? fixResult.fixedCount : 0;
+        typeText(`Bug Reporter API: Report #${entry.id} logged. Auto fix ran (${fixedCount} fix(es)).`);
+    }
+
+    return {
+        report: entry,
+        fixResult
+    };
+}
+
+function reportRuntimeBug(input) {
+    if (bugReporterReentryGuard) return null;
+    bugReporterReentryGuard = true;
+    try {
+        return reportBugToAutoFix(input, {
+            silent: true,
+            autoFix: true,
+            fixSilent: true
+        });
+    } finally {
+        bugReporterReentryGuard = false;
+    }
+}
+
+function enableBugReporterAutoCapture() {
+    if (bugReporterAutoCaptureEnabled) return;
+
+    bugReporterErrorHandler = (event) => {
+        try {
+            const message = event && typeof event.message === 'string' && event.message.trim()
+                ? event.message.trim()
+                : 'Unhandled runtime error';
+            reportRuntimeBug({
+                source: 'window.error',
+                severity: 'HIGH',
+                message,
+                details: {
+                    filename: event ? event.filename || '' : '',
+                    line: event ? event.lineno || 0 : 0,
+                    column: event ? event.colno || 0 : 0,
+                    stack: event && event.error ? String(event.error.stack || '') : ''
+                }
+            });
+        } catch {
+            // Ignore reporter handler errors.
+        }
+    };
+
+    bugReporterRejectionHandler = (event) => {
+        try {
+            const reason = event ? event.reason : '';
+            let message = 'Unhandled promise rejection';
+            let details = {};
+
+            if (reason instanceof Error) {
+                message = reason.message || message;
+                details = {
+                    name: reason.name || 'Error',
+                    stack: reason.stack || ''
+                };
+            } else if (typeof reason === 'string') {
+                message = reason;
+                details = { reason };
+            } else {
+                details = safeSerializeBugDetails(reason);
+            }
+
+            reportRuntimeBug({
+                source: 'window.unhandledrejection',
+                severity: 'HIGH',
+                message,
+                details
+            });
+        } catch {
+            // Ignore reporter handler errors.
+        }
+    };
+
+    window.addEventListener('error', bugReporterErrorHandler);
+    window.addEventListener('unhandledrejection', bugReporterRejectionHandler);
+    bugReporterAutoCaptureEnabled = true;
+}
+
+function disableBugReporterAutoCapture() {
+    if (!bugReporterAutoCaptureEnabled) return;
+    if (bugReporterErrorHandler) window.removeEventListener('error', bugReporterErrorHandler);
+    if (bugReporterRejectionHandler) window.removeEventListener('unhandledrejection', bugReporterRejectionHandler);
+    bugReporterErrorHandler = null;
+    bugReporterRejectionHandler = null;
+    bugReporterAutoCaptureEnabled = false;
+}
+
+function getBugReporterStatus() {
+    return {
+        reportCount: bugReports.length,
+        autoCaptureEnabled: bugReporterAutoCaptureEnabled,
+        lastReportId: bugReports.length ? bugReports[bugReports.length - 1].id : null,
+        storageKey: BUG_REPORT_STORAGE_KEY
+    };
+}
+
+const bugReporterAPI = {
+    report(input, options = {}) {
+        return reportBugToAutoFix(input, {
+            autoFix: true,
+            fixSilent: true,
+            ...options
+        });
+    },
+    reportOnly(input, options = {}) {
+        return reportBugToAutoFix(input, {
+            autoFix: false,
+            ...options
+        });
+    },
+    list(limit = bugReports.length) {
+        const parsedLimit = Number.parseInt(limit, 10);
+        const safeLimit = Number.isNaN(parsedLimit)
+            ? bugReports.length
+            : Math.max(1, Math.min(BUG_REPORT_LIMIT, parsedLimit));
+        return bugReports.slice(-safeLimit);
+    },
+    last() {
+        return bugReports.length ? bugReports[bugReports.length - 1] : null;
+    },
+    clear() {
+        const cleared = bugReports.length;
+        bugReports = [];
+        writeBugReportsToStorage();
+        return { cleared };
+    },
+    fixNow(options = {}) {
+        return autoBugFixAPI.run(options);
+    },
+    status() {
+        return getBugReporterStatus();
+    },
+    enableAutoCapture() {
+        enableBugReporterAutoCapture();
+        return this.status();
+    },
+    disableAutoCapture() {
+        disableBugReporterAutoCapture();
+        return this.status();
+    }
+};
+
+bugReports = readBugReportsFromStorage();
+bugReportCounter = bugReports.reduce((maxId, report) => {
+    const id = Number.parseInt(report.id, 10) || 0;
+    return Math.max(maxId, id);
+}, 0);
+
+window.bugReporterAPI = bugReporterAPI;
+window.bugReportingAPI = bugReporterAPI;
+enableBugReporterAutoCapture();
 
 function applyAdminChanges() {
     if (!isAdminUser()) {

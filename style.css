@@ -347,6 +347,7 @@ body.admin-draggable-enabled .admin-draggable-target.drag-hold-pending {
 }
 body.admin-draggable-enabled .admin-draggable-target.dragging {
     cursor: grabbing;
+    -webkit-user-select: none;
     user-select: none;
     touch-action: none;
     transition: none !important;
