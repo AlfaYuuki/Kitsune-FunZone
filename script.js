@@ -52,7 +52,7 @@ const adminPanel = document.getElementById('admin-panel');
 const adminUsernameInput = document.getElementById('admin-username');
 const adminLevelInput = document.getElementById('admin-level');
 const adminExpInput = document.getElementById('admin-exp');
-const adminRankInput = document.getElementById('admin-rank');
+const adminRankSelector = document.getElementById('admin-rank-selector');
 const adminMHInput = document.getElementById('admin-mh');
 const adminApplyBtn = document.getElementById('admin-apply-btn');
 const adminToggleBtn = document.getElementById('admin-toggle-btn');
@@ -60,7 +60,19 @@ const lockedControls = Array.from(document.querySelectorAll('.controls button'))
 const ADMIN_SECRET_PEPPER = 'kf-secure-v1';
 const ADMIN_PASSWORD_SIGNATURES = {
     'ALFA YUUKI': '5dd84939',
+    'SEA DUST': '0865bb06',
     'KITTY YUKINO': '461f7935'
+};
+const ROOT_ADMIN_NAMES = ["ALFA YUUKI", "SEA DUST"];
+const ADMIN_RANKS = ["ROOT ADMIN", "ADMIN", "S", "A", "B", "C", "D"];
+const RANK_CLASS_MAP = {
+    "ROOT ADMIN": "rank-root-admin",
+    "ADMIN": "rank-admin",
+    "S": "rank-s",
+    "A": "rank-a",
+    "B": "rank-b",
+    "C": "rank-c",
+    "D": "rank-d"
 };
 const ADMIN_RECOVERY_SIGNATURE = '3d417aea';
 const ADMIN_ACCOUNT_LOCK_THRESHOLD = 10;
@@ -884,6 +896,33 @@ function startMissionLevel4() {
     launchStage();
 }
 
+function validateRankChange(requestedRank) {
+    const isRoot = isRootAdminName(userProfile.username);
+    const isAdmin = isAdminUser();
+
+    if (!ADMIN_RANKS.includes(requestedRank)) {
+        return { allowed: false, error: "Unknown rank selected" };
+    }
+
+    // Rule: Only Root Admin can access the "ROOT ADMIN" rank
+    if (requestedRank === "ROOT ADMIN" && !isRoot) {
+        return { allowed: false, error: "Access Denied: Root Only" };
+    }
+
+    // Rule: Admins can access Admin and all letter ranks (S, A, B, C, D)
+    const standardTiers = ["ADMIN", "S", "A", "B", "C", "D"];
+    if (isAdmin && standardTiers.includes(requestedRank)) {
+        return { allowed: true };
+    }
+
+    // Rule: Root Admin can access everything
+    if (isRoot) {
+        return { allowed: true };
+    }
+
+    return { allowed: false, error: "Unauthorized Tier" };
+}
+
 function launchMissionLevel(level) {
     if (level === 1) startMissionLevel1();
     else if (level === 2) startMissionLevel2();
@@ -1215,6 +1254,10 @@ function normalizeAdminName(name = userProfile.username) {
     return String(name || '').trim().toUpperCase();
 }
 
+function isRootAdminName(name = userProfile.username) {
+    return ROOT_ADMIN_NAMES.includes(normalizeAdminName(name));
+}
+
 function computeAdminSecretSignature(scope, value = '') {
     const input = `${String(scope)}|${String(value).trim()}|${ADMIN_SECRET_PEPPER}`;
     let hash = 2166136261;
@@ -1439,7 +1482,11 @@ function syncAdminPanelFromProfile() {
     if (adminUsernameInput) adminUsernameInput.value = userProfile.username;
     if (adminLevelInput) adminLevelInput.value = String(userProfile.level);
     if (adminExpInput) adminExpInput.value = String(userProfile.exp);
-    if (adminRankInput) adminRankInput.value = adminCustomRank || userProfile.rank;
+    populateRankMenu();
+    if (adminRankSelector) {
+        const profileRank = adminCustomRank || userProfile.rank;
+        adminRankSelector.value = ADMIN_RANKS.includes(profileRank) ? profileRank : "D";
+    }
     if (adminMHInput) adminMHInput.value = String(userProfile.mentalHealth);
 }
 
@@ -1683,10 +1730,9 @@ function runAutoBugFix({ silent = true } = {}) {
     }
     if (leveledFromOverflow) fixes.push('Resolved exp overflow');
 
-    // Keep admin/non-admin rank logic consistent.
-    if (!isAdminUser() && adminCustomRank) {
+    if (adminCustomRank && !ADMIN_RANKS.includes(adminCustomRank)) {
         adminCustomRank = '';
-        fixes.push('Cleared admin-only rank override');
+        fixes.push('Cleared invalid rank override');
     }
     updateRank();
 
@@ -1716,6 +1762,7 @@ function runAutoBugFix({ silent = true } = {}) {
             fixes.push('Synced Missions button state');
         }
     }
+
     if ((!usernameReady || getMaxUnlockedMissionLevel() <= 0) && activeMissionGame) {
         closeMissionGameWindow({ silent: true });
         fixes.push('Closed inaccessible mission game');
@@ -2107,11 +2154,35 @@ function applyAdminChanges() {
         return;
     }
 
+    const requestedRank = adminRankSelector ? adminRankSelector.value : '';
+    const validation = validateRankChange(requestedRank);
+
+    if (!validation.allowed) {
+        alert(validation.error);
+        return;
+    }
+
+    userProfile.level = parseIntSafe(adminLevelInput ? adminLevelInput.value : userProfile.level, userProfile.level, 1);
+    userProfile.exp = parseIntSafe(adminExpInput ? adminExpInput.value : userProfile.exp, userProfile.exp, 0);
+    userProfile.mentalHealth = parseIntSafe(adminMHInput ? adminMHInput.value : userProfile.mentalHealth, userProfile.mentalHealth, 0, 100);
     userProfile.username = nextUsername;
-    const currentAdminName = normalizeAdminName(userProfile.username);
-    if (previousAdminName !== currentAdminName) {
+    const nextIsAdminName = isAdminName(userProfile.username);
+    if (nextIsAdminName) {
+        userProfile.rank = requestedRank;
+        adminCustomRank = requestedRank;
+    } else {
+        userProfile.rank = "D";
+        adminCustomRank = "D";
+    }
+
+    updateRank();
+    renderProfile();
+    updateMHBar();
+
+    if (previousAdminName !== normalizeAdminName(userProfile.username)) {
         isAdminVerified = false;
     }
+
     if (!isAdminName()) {
         isAdminVerified = false;
         hideAdminPasswordPanel();
@@ -2120,21 +2191,25 @@ function applyAdminChanges() {
         applyAdminSecurityStateFor(userProfile.username);
         if (!isAdminUser()) showAdminPasswordPanel();
     }
-    userProfile.level = parseIntSafe(adminLevelInput ? adminLevelInput.value : userProfile.level, userProfile.level, 1);
-    userProfile.exp = parseIntSafe(adminExpInput ? adminExpInput.value : userProfile.exp, userProfile.exp, 0);
-    userProfile.mentalHealth = parseIntSafe(adminMHInput ? adminMHInput.value : userProfile.mentalHealth, userProfile.mentalHealth, 0, 100);
 
-    const typedRank = adminRankInput ? adminRankInput.value.trim().toUpperCase() : '';
-    adminCustomRank = isAdminUser() ? typedRank : '';
-
-    updateRank();
-    renderProfile();
-    updateMHBar();
     unlockFeatures();
     toggleAdminPanel();
 
     if (isAdminUser()) typeText('Admin changes applied.');
     else typeText(`Profile updated. Admin mode disabled for ${userProfile.username}.`);
+}
+
+function populateRankMenu() {
+    const menu = document.getElementById('admin-rank-selector');
+    if (!menu) return;
+    const isRoot = isRootAdminName();
+    
+    // Filter the list: If not Root, remove the Root option
+    const visibleRanks = isRoot ? ADMIN_RANKS : ADMIN_RANKS.filter(r => r !== "ROOT ADMIN");
+
+    menu.innerHTML = visibleRanks.map(rank => 
+        `<option value="${rank}">${getRankDisplayName(rank)}</option>`
+    ).join('');
 }
 
 function lockFeatures() {
@@ -2171,7 +2246,7 @@ function renderProfile() {
     profileUsername.textContent = name;
     if (!userProfile.username) profileUsername.classList.add('placeholder');
     else profileUsername.classList.remove('placeholder');
-    profileRank.textContent = userProfile.rank;
+    updateProfileRankDisplay();
     profileLevel.textContent = userProfile.level;
 
     const needed = userProfile.level * 100;
@@ -2181,15 +2256,19 @@ function renderProfile() {
     const pct = needed > 0 ? Math.min(100, Math.round((userProfile.exp / needed) * 100)) : 0;
     if (expBar) expBar.style.width = pct + "%";
 
-    // rank color hints
-    if (profileRank) {
-        if (userProfile.rank === 'ADMIN') profileRank.style.color = '#ff4dff';
-        else if (userProfile.rank === 'S') profileRank.style.color = '#ffd700';
-        else if (userProfile.rank === 'A') profileRank.style.color = '#00ff99';
-        else if (userProfile.rank === 'B') profileRank.style.color = '#66ccff';
-        else if (userProfile.rank === 'C') profileRank.style.color = '#ffb86b';
-        else profileRank.style.color = '#ff6b6b';
-    }
+}
+
+function getRankDisplayName(rank = userProfile.rank) {
+    if (rank === "ROOT ADMIN" || rank === "ADMIN") return rank;
+    if (["S", "A", "B", "C", "D"].includes(rank)) return `${rank} RANK`;
+    return "D RANK";
+}
+
+function updateProfileRankDisplay() {
+    if (!profileRank) return;
+    profileRank.textContent = getRankDisplayName();
+    profileRank.classList.remove(...Object.values(RANK_CLASS_MAP));
+    profileRank.classList.add(RANK_CLASS_MAP[userProfile.rank] || RANK_CLASS_MAP.D);
 }
 
 function showRegisterPanel() {
@@ -2317,7 +2396,6 @@ function addExp(amount) {
 
     // update static parts (rank, next-needed)
     if (profileUsername) profileUsername.textContent = userProfile.username;
-    if (profileRank) profileRank.textContent = userProfile.rank;
     if (profileLevel) profileLevel.textContent = oldLevel; // start value for animation
     if (profileExpNeeded) profileExpNeeded.textContent = newNeeded;
 
@@ -2336,15 +2414,7 @@ function addExp(amount) {
     animateValue(profileExp, oldExp, newExp, 900);
     if (newLevel !== oldLevel) animateValue(profileLevel, oldLevel, newLevel, 700);
 
-    // color update for rank
-    if (profileRank) {
-        if (userProfile.rank === 'ADMIN') profileRank.style.color = '#ff4dff';
-        else if (userProfile.rank === 'S') profileRank.style.color = '#ffd700';
-        else if (userProfile.rank === 'A') profileRank.style.color = '#00ff99';
-        else if (userProfile.rank === 'B') profileRank.style.color = '#66ccff';
-        else if (userProfile.rank === 'C') profileRank.style.color = '#ffb86b';
-        else profileRank.style.color = '#ff6b6b';
-    }
+    updateProfileRankDisplay();
 
     // notify player
     if (levelUps > 1) typeText(`LEVEL UP x${levelUps}! You are now Level ${newLevel}`);
@@ -2353,10 +2423,24 @@ function addExp(amount) {
 }
 
 function updateRank() {
-    if (isAdminUser()) {
-        userProfile.rank = adminCustomRank || "ADMIN";
+    if (adminCustomRank && ADMIN_RANKS.includes(adminCustomRank)) {
+        userProfile.rank = adminCustomRank;
         return;
     }
+
+    // Check if the user is a verified Admin
+    if (isAdminUser()) {
+        const normalizedName = normalizeAdminName(userProfile.username);
+        
+        if (isRootAdminName(normalizedName)) {
+            userProfile.rank = "ROOT ADMIN";
+        } else {
+            // Default rank for other admins or custom set ranks
+            userProfile.rank = adminCustomRank || "ADMIN";
+        }
+        return;
+    }
+
     if (userProfile.level >= 20) userProfile.rank = "S";
     else if (userProfile.level >= 15) userProfile.rank = "A";
     else if (userProfile.level >= 10) userProfile.rank = "B";

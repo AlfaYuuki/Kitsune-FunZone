@@ -146,6 +146,46 @@ button:hover:not(:disabled) { background:#00ffcc; color:#0b0f1e; box-shadow:0 0 
 
 /* placeholder style for empty username */
 #profile-username.placeholder { color: #8affd9; opacity: 0.75; font-style: italic; }
+#profile-rank {
+    display: inline-block;
+    font-weight: 700;
+}
+#profile-rank.rank-d {
+    color: #8b5a2b;
+    text-shadow: 0 0 8px rgba(139, 90, 43, 0.65);
+}
+#profile-rank.rank-c {
+    color: #c0c0c0;
+    text-shadow: 0 0 8px rgba(192, 192, 192, 0.55);
+}
+#profile-rank.rank-b {
+    color: #4da6ff;
+    text-shadow: 0 0 9px rgba(77, 166, 255, 0.65);
+}
+#profile-rank.rank-a {
+    color: #b84dff;
+    text-shadow: 0 0 10px rgba(184, 77, 255, 0.7);
+}
+#profile-rank.rank-s {
+    color: #ffd700;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.75);
+}
+#profile-rank.rank-admin {
+    color: #ff4dff;
+    text-shadow: 0 0 10px #ff4dff;
+}
+#profile-rank.rank-root-admin {
+    background: linear-gradient(90deg, #7b2d9f, #fdd82e, #7b2d9f);
+    background-size: 200% auto;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    text-shadow:
+        0 0 10px rgba(123, 45, 159, 0.8),
+        0 0 20px rgba(253, 216, 46, 0.6);
+    animation: rootGlow 3s linear infinite;
+}
 .exp-bar-bg { width: 100%; height: 12px; background: rgba(0,0,0,0.25); border-radius: 8px; overflow: hidden; border: 1px solid rgba(0,255,204,0.06); }
 .exp-bar-fill { width: 0%; height: 100%; background: linear-gradient(to right, #00ffcc, #00cc99); transition: width 0.5s ease; }
 .exp-text { font-size: 12px; color: #aaffdd; margin-top: 6px; text-align: right; }
@@ -154,6 +194,10 @@ button:hover:not(:disabled) { background:#00ffcc; color:#0b0f1e; box-shadow:0 0 
 #profile-level, #profile-exp { display: inline-block; }
 .bump { animation: bump 0.6s cubic-bezier(.2,.9,.3,1); }
 @keyframes bump { 0%{ transform: scale(1); } 45%{ transform: scale(1.18); } 100%{ transform: scale(1); } }
+@keyframes rootGlow {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+}
 
 /* Registration Panel */
 .register-panel {
@@ -286,7 +330,7 @@ button:hover:not(:disabled) { background:#00ffcc; color:#0b0f1e; box-shadow:0 0 
     font-size: 12px;
     margin-bottom: 8px;
 }
-.admin-field input {
+.admin-field input, .admin-field select {
     width: 100%;
     margin-top: 4px;
     padding: 6px;
@@ -296,7 +340,7 @@ button:hover:not(:disabled) { background:#00ffcc; color:#0b0f1e; box-shadow:0 0 
     color: #fff1ff;
     box-sizing: border-box;
 }
-#admin-rank { text-transform: uppercase; }
+#admin-rank-selector { text-transform: uppercase; }
 #admin-apply-btn {
     width: 100%;
     border-color: #ff7dff;
@@ -1048,3 +1092,4 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
         bottom: 136px;
     }
 }
+

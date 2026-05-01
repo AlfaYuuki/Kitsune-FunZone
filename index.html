@@ -26,7 +26,7 @@
   <div class="profile-exp">
     <div class="exp-bar-bg"><div id="exp-bar" class="exp-bar-fill"></div></div>
     <div class="exp-text"><span id="profile-exp">0</span>/<span id="profile-exp-needed">100</span> EXP</div>
-  </div>
+ </div>
 </div>
 
 <!-- Registration Panel -->
@@ -39,7 +39,7 @@
 <!-- Admin Password Verification -->
 <div id="admin-auth-panel" class="admin-auth-panel hidden">
   <div class="admin-auth-title">Admin Verification</div>
-  <input id="admin-password-input" type="password" inputmode="numeric" maxlength="8" placeholder="Enter admin password">
+  <input id="admin-password-input" type="password" maxlength="64" placeholder="Enter admin password">
   <button id="verify-admin-btn" type="button">Verify Password</button>
   <div class="admin-auth-hint">Required only for admin accounts</div>
   <div id="admin-recovery-wrap" class="admin-recovery-wrap hidden">
@@ -65,7 +65,7 @@
   </label>
   <label class="admin-field">
     Rank
-    <input id="admin-rank" type="text" maxlength="16" placeholder="ADMIN / S / A / B / C / D">
+    <select id="admin-rank-selector"></select>
   </label>
   <label class="admin-field">
     Mental Health
