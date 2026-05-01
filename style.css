@@ -862,13 +862,6 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
     50% { opacity: 1; transform: rotate(180deg) scale(1.05); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-        animation: none !important;
-        transition: none !important;
-    }
-}
-
 @media (max-width: 760px) {
     body {
         align-items: flex-start;
@@ -934,9 +927,6 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
     }
     .profile-row {
         margin-bottom: 4px;
-    }
-    .profile-row strong {
-        font-size: 14px;
     }
     .profile-exp {
         margin-top: 4px;
@@ -1076,14 +1066,109 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
         font-size: 10px;
         opacity: 0.62;
     }
+
+    body::before,
+    body::after {
+        inset: 0;
+        animation: none;
+        filter: none;
+        opacity: 0.12;
+    }
+    .panel,
+    .mh-container,
+    .profile-panel,
+    .register-panel,
+    .admin-auth-panel,
+    .admin-panel,
+    .loading-window,
+    .yui-dialogue,
+    #quiz-container,
+    .mission-selector,
+    .mission-game-window {
+        box-shadow: 0 0 8px rgba(0, 255, 204, 0.45);
+        animation: none;
+    }
+    .controls,
+    button,
+    .ui-enter-pop,
+    .ui-exit-pop,
+    .ui-enter-rise,
+    .ui-exit-drop,
+    .ui-enter-slide-left,
+    .ui-exit-slide-left,
+    .ui-enter-fade,
+    .ui-exit-fade,
+    .yui-dialogue-enter,
+    .yui-dialogue-exit,
+    #yui-text.yui-text-refresh {
+        animation: none;
+        transition-duration: 0.01ms;
+    }
+    .yui-avatar,
+    .yui-avatar.yui-avatar-enter {
+        animation: none;
+    }
+    .yui-avatar img,
+    .yui-avatar.pose-neutral img,
+    .yui-avatar.pose-wave img,
+    .yui-avatar.pose-think img,
+    .yui-avatar.pose-bye img,
+    .yui-avatar.pose-alert img,
+    .yui-avatar.pose-happy img,
+    .yui-avatar.pose-guide img,
+    .yui-avatar.pose-point img,
+    .yui-avatar.pose-warning img,
+    .yui-avatar.pose-shock img,
+    .yui-avatar.pose-serious img,
+    .yui-avatar.pose-pray img,
+    .yui-avatar.pose-cheer img {
+        filter: none;
+    }
+    #profile-rank.rank-root-admin {
+        animation: rootGlow 4.5s linear infinite;
+    }
+}
+
+.low-memory-device body::before,
+.low-memory-device body::after {
+    animation: none;
+    filter: none;
+    opacity: 0.1;
+}
+
+.low-memory-device .panel,
+.low-memory-device .mh-container,
+.low-memory-device .profile-panel,
+.low-memory-device .register-panel,
+.low-memory-device .admin-auth-panel,
+.low-memory-device .admin-panel,
+.low-memory-device .loading-window,
+.low-memory-device .yui-dialogue,
+.low-memory-device #quiz-container,
+.low-memory-device .mission-selector,
+.low-memory-device .mission-game-window {
+    box-shadow: 0 0 8px rgba(0, 255, 204, 0.45);
+    animation: none;
+}
+
+.low-memory-device .yui-avatar,
+.low-memory-device .yui-avatar.yui-avatar-enter,
+.low-memory-device .controls,
+.low-memory-device button {
+    animation: none;
+}
+
+.low-memory-device .yui-avatar img {
+    filter: none;
+}
+
+.low-memory-device #profile-rank.rank-root-admin {
+    animation: rootGlow 4.5s linear infinite;
 }
 
 @media (max-width: 430px) {
     .controls button {
         flex-basis: 100%;
-    }
-    .profile-row {
-        font-size: 12px;
     }
     .admin-title {
         font-size: 12px;

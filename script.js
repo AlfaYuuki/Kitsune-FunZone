@@ -107,6 +107,10 @@ let adminLockTicker = null;
 const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const UI_ENTER_CLASSES = ['ui-enter-pop', 'ui-enter-rise', 'ui-enter-slide-left', 'ui-enter-fade', 'yui-dialogue-enter', 'yui-avatar-enter'];
 const UI_EXIT_CLASSES = ['ui-exit-pop', 'ui-exit-drop', 'ui-exit-slide-left', 'ui-exit-fade', 'yui-dialogue-exit'];
+const deviceMemoryGb = Number(navigator.deviceMemory) || 0;
+if (deviceMemoryGb && deviceMemoryGb <= 2) {
+    document.documentElement.classList.add('low-memory-device');
+}
 const ADMIN_LAYOUT_STORAGE_KEY = 'kitsune_admin_layout_v1';
 const ADMIN_DRAG_HOLD_MS = 280;
 const ADMIN_DRAG_CANCEL_DISTANCE = 12;
