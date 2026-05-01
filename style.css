@@ -3,16 +3,21 @@ html, body {
     overflow-x: hidden;
 }
 
+* {
+    transition: all 0.25s ease;
+}
+
 body {
     margin: 0;
     font-family: 'Courier New', monospace;
-    background-color: #02050e;
+    background-color: #000;
     background-image:
         radial-gradient(circle at 50% 15%, rgba(0, 198, 255, 0.1), transparent 55%),
-        linear-gradient(135deg, #020611 0%, #020914 45%, #00040b 100%);
+        radial-gradient(circle at top, #0b0f1e, #000);
     background-repeat: no-repeat;
-    background-size: 100% 100%, 100% 100%;
-    background-position: center center, center center;
+    background-size: 200% 200%, 200% 200%;
+    background-position: 0% 0%, 0% 0%;
+    animation: bgMove 12s ease infinite;
     position: relative;
     isolation: isolate;
     display: flex;
@@ -58,19 +63,35 @@ body::after {
     filter: blur(0.2px);
     animation: bg-orbit-rev 30s linear infinite;
 }
+#particles {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
 #output { min-height:50px; font-size:16px; margin-top:10px; white-space:pre-wrap; line-height:1.4; }
 .sao-ui { width: min(100%, 560px); }
 
 .panel {
-    background: rgba(0,20,40,0.6);
-    border: 2px solid #00ffcc;
+    background: rgba(0,20,40,0.45);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(0,255,204,0.4);
     border-radius: 15px;
     padding: 25px 35px;
     width: 90%;
     max-width: 520px;
     text-align: center;
-    box-shadow: 0 0 20px #00ffcc;
+    box-shadow: 0 0 25px rgba(0,255,204,0.4);
     animation: panel-enter 700ms ease-out both, panel-glow 3600ms ease-in-out infinite 700ms;
+}
+h1 {
+    text-shadow: 0 0 10px #00ffcc;
+}
+#output {
+    animation: fadeText 0.3s ease;
 }
 .controls {
     margin-top: 20px;
@@ -78,16 +99,30 @@ body::after {
     animation: controls-enter 680ms ease-out both;
 }
 button {
-    background: rgba(0,20,40,0.7);
-    color:#00ffcc; border:2px solid #00ffcc;
-    padding:10px 15px; margin:5px;
-    border-radius:10px; cursor:pointer;
-    font-weight:bold; transition:0.3s;
+    background: rgba(0,20,40,0.6);
+    color:#00ffcc;
+    border:2px solid #00ffcc;
+    padding:10px 15px;
+    margin:5px;
+    border-radius:10px;
+    cursor:pointer;
+    font-weight:bold;
+    transition:0.2s;
+    position: relative;
+    overflow: hidden;
     transform: translateY(10px) scale(0.98);
     animation: control-reveal 420ms ease-out forwards;
 }
 button:disabled { opacity:0.4; cursor:not-allowed; }
-button:hover:not(:disabled) { background:#00ffcc; color:#0b0f1e; box-shadow:0 0 15px #00ffcc; }
+button:hover:not(:disabled) {
+    transform: translateY(-2px) scale(1.05);
+    background:#00ffcc;
+    color:#0b0f1e;
+    box-shadow: 0 0 20px #00ffcc;
+}
+button:active {
+    transform: scale(0.95);
+}
 .controls button:nth-child(1) { animation-delay: 130ms; }
 .controls button:nth-child(2) { animation-delay: 210ms; }
 .controls button:nth-child(3) { animation-delay: 290ms; }
@@ -111,6 +146,7 @@ button:hover:not(:disabled) { background:#00ffcc; color:#0b0f1e; box-shadow:0 0 
     background: linear-gradient(to right, #ff4c4c, #ff0000);
     display:flex; align-items:center; justify-content:flex-start;
     transition: width 0.5s ease;
+    box-shadow: 0 0 10px rgba(255,0,0,0.6);
 }
 .mh-text { position:absolute; left:6px; font-size:11px; color:#ffaaaa; }
 
@@ -177,8 +213,8 @@ button:hover:not(:disabled) { background:#00ffcc; color:#0b0f1e; box-shadow:0 0 
 #profile-rank.rank-root-admin {
     background: linear-gradient(90deg, #7b2d9f, #fdd82e, #7b2d9f);
     background-size: 200% auto;
-    background-clip: text;
     -webkit-background-clip: text;
+    background-clip: text;
     color: transparent;
     -webkit-text-fill-color: transparent;
     text-shadow:
@@ -186,6 +222,30 @@ button:hover:not(:disabled) { background:#00ffcc; color:#0b0f1e; box-shadow:0 0 
         0 0 20px rgba(253, 216, 46, 0.6);
     animation: rootGlow 3s linear infinite;
 }
+
+.rank-popup {
+    position: fixed;
+    top: 30%;
+    left: 50%;
+    transform: translateX(-50%) scale(0.8);
+    padding: 20px 40px;
+    border-radius: 15px;
+    font-size: 22px;
+    font-weight: bold;
+    color: white;
+    z-index: 2000;
+    opacity: 0;
+    transition: all 0.5s ease;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.45);
+    text-align: center;
+    pointer-events: none;
+}
+
+.rank-popup.show {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+}
+
 .exp-bar-bg { width: 100%; height: 12px; background: rgba(0,0,0,0.25); border-radius: 8px; overflow: hidden; border: 1px solid rgba(0,255,204,0.06); }
 .exp-bar-fill { width: 0%; height: 100%; background: linear-gradient(to right, #00ffcc, #00cc99); transition: width 0.5s ease; }
 .exp-text { font-size: 12px; color: #aaffdd; margin-top: 6px; text-align: right; }
@@ -416,7 +476,8 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
 .yui-dialogue {
     position: fixed; bottom:-320px; left:50%; transform:translateX(-50%);
     background: rgba(0,20,40,0.9); border:2px solid #00ffcc; border-radius:15px;
-    padding:20px 20px 25px; width:90%; max-width:520px; box-shadow:0 0 20px #00ffcc;
+    padding:20px 20px 25px; width:90%; max-width:520px; box-shadow:0 0 25px rgba(0,255,204,0.6);
+    backdrop-filter: blur(8px);
     transition: bottom 0.5s ease; z-index:1000;
 }
 .yui-avatar { position:absolute; left:-150px; bottom:15px; animation: floatYui 3s ease-in-out infinite; }
@@ -440,6 +501,9 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
 .yui-avatar.pose-pray img { transform: translateX(-1px) rotate(2deg) scale(0.97); filter: drop-shadow(0 0 14px #d6b3ff) brightness(1.03); }
 .yui-avatar.pose-cheer img { transform: translateY(-5px) rotate(7deg) scale(1.1); filter: drop-shadow(0 0 20px #9bffbc) brightness(1.16); }
 @keyframes floatYui { 0%{transform:translateY(0);}50%{transform:translateY(-10px);}100%{transform:translateY(0);} }
+.yui-box p {
+    animation: fadeText 0.3s ease;
+}
 .yui-box button { float:right; margin-top:10px; }
 
 /* Quiz */
@@ -457,6 +521,9 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
     transition:0.3s; font-family:monospace; font-size:14px;
 }
 .quiz-answer-btn:hover { background:#00ffcc; color:#0b0f1e; }
+.quiz-answer-btn:active {
+    transform: scale(0.95);
+}
 
 /* Mission Selector */
 .mission-selector {
@@ -845,6 +912,17 @@ body.admin-draggable-enabled .admin-draggable-target.dragging {
 @keyframes yui-text-refresh {
     from { opacity: 0.1; transform: translateY(6px); filter: blur(1px); }
     to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes fadeText {
+    from { opacity:0; transform: translateY(5px); }
+    to { opacity:1; transform: translateY(0); }
+}
+
+@keyframes bgMove {
+    0% { background-position: 0% 0%, 0% 0%; }
+    50% { background-position: 100% 50%, 100% 50%; }
+    100% { background-position: 0% 0%, 0% 0%; }
 }
 
 @keyframes bg-orbit {

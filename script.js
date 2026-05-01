@@ -36,6 +36,8 @@ const profileLevel = document.getElementById('profile-level');
 const profileExp = document.getElementById('profile-exp');
 const profileExpNeeded = document.getElementById('profile-exp-needed');
 const expBar = document.getElementById('exp-bar');
+const rankPopup = document.getElementById('rank-popup');
+const rankPopupText = document.getElementById('rank-popup-text');
 // Registration elements
 const usernameInput = document.getElementById('username-input');
 const setUsernameBtn = document.getElementById('set-username-btn');
@@ -73,6 +75,24 @@ const RANK_CLASS_MAP = {
     "B": "rank-b",
     "C": "rank-c",
     "D": "rank-d"
+};
+const RANK_ORDER = {
+    "D": 1,
+    "C": 2,
+    "B": 3,
+    "A": 4,
+    "S": 5,
+    "ADMIN": 6,
+    "ROOT ADMIN": 7
+};
+const RANK_POPUP_BACKGROUNDS = {
+    "ROOT ADMIN": "linear-gradient(135deg, #7b2d9f, #fdd82e, #7b2d9f)",
+    "ADMIN": "linear-gradient(135deg, #6b2dff, #ff4dff)",
+    "S": "linear-gradient(135deg, #ffb300, #fff176, #ff8f00)",
+    "A": "linear-gradient(135deg, #00e5ff, #00bcd4)",
+    "B": "linear-gradient(135deg, #2196f3, #0d47a1)",
+    "C": "linear-gradient(135deg, #ff9800, #ef6c00)",
+    "D": "linear-gradient(135deg, #ff5252, #b71c1c)"
 };
 const ADMIN_RECOVERY_SIGNATURE = '3d417aea';
 const ADMIN_ACCOUNT_LOCK_THRESHOLD = 10;
@@ -2268,6 +2288,42 @@ function getRankDisplayName(rank = userProfile.rank) {
     return "D RANK";
 }
 
+let rankPopupTimer = null;
+let rankPopupHideTimer = null;
+let particleBurst = () => {};
+
+function showRankPopup(oldRank, newRank) {
+    if (!rankPopup || !rankPopupText || oldRank === newRank) return;
+
+    const direction = (RANK_ORDER[newRank] || 0) > (RANK_ORDER[oldRank] || 0) ? "UP" : "DOWN";
+    const icon = direction === "UP" ? "⬆" : "⬇";
+
+    rankPopupText.textContent = `${icon} RANK ${direction}! ${getRankDisplayName(oldRank)} → ${getRankDisplayName(newRank)}`;
+    rankPopup.style.background = RANK_POPUP_BACKGROUNDS[newRank] || RANK_POPUP_BACKGROUNDS.D;
+
+    let burstColor = "0,255,200";
+    if (newRank === "S") burstColor = "255,215,0";
+    else if (newRank === "A") burstColor = "0,255,200";
+    else if (newRank === "B") burstColor = "0,150,255";
+    else if (newRank === "C") burstColor = "255,150,0";
+    else if (newRank === "D") burstColor = "255,50,50";
+    else if (newRank === "ADMIN" || newRank === "ROOT ADMIN") burstColor = "180,80,255";
+    particleBurst(window.innerWidth / 2, window.innerHeight / 2, burstColor);
+
+    clearTimeout(rankPopupTimer);
+    clearTimeout(rankPopupHideTimer);
+    rankPopup.classList.remove('hidden');
+    void rankPopup.offsetWidth;
+    rankPopup.classList.add('show');
+
+    rankPopupTimer = window.setTimeout(() => {
+        rankPopup.classList.remove('show');
+        rankPopupHideTimer = window.setTimeout(() => {
+            rankPopup.classList.add('hidden');
+        }, 500);
+    }, 2500);
+}
+
 function updateProfileRankDisplay() {
     if (!profileRank) return;
     profileRank.textContent = getRankDisplayName();
@@ -2427,38 +2483,46 @@ function addExp(amount) {
 }
 
 function updateRank() {
-    if (adminCustomRank && ADMIN_RANKS.includes(adminCustomRank)) {
-        userProfile.rank = adminCustomRank;
-        return;
-    }
+    const oldRank = userProfile.rank;
+    let newRank;
 
-    // Check if the user is a verified Admin
-    if (isAdminUser()) {
+    if (adminCustomRank && ADMIN_RANKS.includes(adminCustomRank)) {
+        newRank = adminCustomRank;
+    } else if (isAdminUser()) {
+        // Check if the user is a verified Admin
         const normalizedName = normalizeAdminName(userProfile.username);
         
         if (isRootAdminName(normalizedName)) {
-            userProfile.rank = "ROOT ADMIN";
+            newRank = "ROOT ADMIN";
         } else {
             // Default rank for other admins or custom set ranks
-            userProfile.rank = adminCustomRank || "ADMIN";
+            newRank = adminCustomRank || "ADMIN";
         }
-        return;
+    } else if (userProfile.level >= 20) {
+        newRank = "S";
+    } else if (userProfile.level >= 15) {
+        newRank = "A";
+    } else if (userProfile.level >= 10) {
+        newRank = "B";
+    } else if (userProfile.level >= 5) {
+        newRank = "C";
+    } else {
+        newRank = "D";
     }
 
-    if (userProfile.level >= 20) userProfile.rank = "S";
-    else if (userProfile.level >= 15) userProfile.rank = "A";
-    else if (userProfile.level >= 10) userProfile.rank = "B";
-    else if (userProfile.level >= 5) userProfile.rank = "C";
-    else userProfile.rank = "D";
+    userProfile.rank = newRank;
+    if (newRank !== oldRank) showRankPopup(oldRank, newRank);
 }
 
 /* ================== Mental Health System (Upgrade 2) ================== */
 function updateMHBar() {
     const hp = userProfile.mentalHealth;
+    let mhGlow = "rgba(255,0,0,0.75)";
     if (!hasBrain) {
         mhBar.style.width = "0%";
         mhText.textContent = NO_BRAIN_TEXT;
         mhBar.style.background = "linear-gradient(to right, #ff4c4c,#ff0000)";
+        mhBar.style.boxShadow = `0 0 15px ${mhGlow}`;
         updateMissionSelectorAvailability();
         return;
     }
@@ -2466,14 +2530,20 @@ function updateMHBar() {
     mhBar.style.width = hp + "%";
     mhText.textContent = `Mental Health: ${hp}%`;
 
-    if (hp <= 25)
+    if (hp <= 25) {
         mhBar.style.background = "linear-gradient(to right, #ff4c4c,#ff0000)";
-    else if (hp <= 50)
+        mhGlow = "rgba(255,0,0,0.75)";
+    } else if (hp <= 50) {
         mhBar.style.background = "linear-gradient(to right, #ff8c00,#ffaa00)";
-    else if (hp <= 75)
+        mhGlow = "rgba(255,170,0,0.75)";
+    } else if (hp <= 75) {
         mhBar.style.background = "linear-gradient(to right, #ffff00,#aaff00)";
-    else
+        mhGlow = "rgba(220,255,0,0.75)";
+    } else {
         mhBar.style.background = "linear-gradient(to right, #00ff00,#00cc00)";
+        mhGlow = "rgba(0,255,0,0.75)";
+    }
+    mhBar.style.boxShadow = `0 0 15px ${mhGlow}`;
 
     updateMissionSelectorAvailability();
 }
@@ -2782,7 +2852,7 @@ function completeMission() {
 
 /* ================== Quiz ================== */
 const quizData = [
-    { question: "2+2?", options: ["3","4","5","22"], answer: 1 },
+    { question: "2+2?", options: ["3","4","5","22"], answer: 2 },
     { question: "SAO stands for?", options: ["Sword Art Online","Super Anime","Simple Online","None"], answer:0 },
     { question:"Sky color?", options:["Green","Blue","Red","Yellow"],answer:1},
     { question:"HTML is?",options:["Language","Browser","OS","Game"],answer:0},
@@ -2843,3 +2913,109 @@ renderProfile();
 updateMHBar();
 runAutoBugFix({ silent: true });
 autoBugFixAPI.start();
+
+const particleCanvas = document.getElementById("particles");
+const particleCtx = particleCanvas ? particleCanvas.getContext("2d") : null;
+
+if (particleCanvas && particleCtx) {
+    function resizeParticleCanvas() {
+        particleCanvas.width = window.innerWidth;
+        particleCanvas.height = window.innerHeight;
+    }
+
+    resizeParticleCanvas();
+    window.addEventListener("resize", resizeParticleCanvas);
+
+    class Particle {
+        constructor() {
+            this.reset();
+        }
+
+        reset() {
+            this.x = Math.random() * particleCanvas.width;
+            this.y = Math.random() * particleCanvas.height;
+            this.size = Math.random() * 2 + 1;
+            this.speedY = Math.random() * 0.5 + 0.2;
+            this.opacity = Math.random();
+        }
+
+        update() {
+            this.y -= this.speedY;
+            if (this.y < 0) {
+                this.reset();
+                this.y = particleCanvas.height;
+            }
+        }
+
+        draw() {
+            particleCtx.beginPath();
+            particleCtx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            const mentalHealth = userProfile.mentalHealth;
+            let color;
+
+            if (mentalHealth <= 25) {
+                color = `rgba(255,50,50,${this.opacity})`;
+            } else if (mentalHealth <= 50) {
+                color = `rgba(255,150,0,${this.opacity})`;
+            } else if (mentalHealth <= 75) {
+                color = `rgba(255,255,100,${this.opacity})`;
+            } else {
+                color = `rgba(0,255,180,${this.opacity})`;
+            }
+
+            particleCtx.fillStyle = color;
+            particleCtx.fill();
+        }
+    }
+
+    const particlesArray = [];
+    for (let i = 0; i < 80; i++) {
+        particlesArray.push(new Particle());
+    }
+
+    particleBurst = function burstParticles(x, y, color) {
+        for (let i = 0; i < 40; i++) {
+            particlesArray.push({
+                x,
+                y,
+                size: Math.random() * 3 + 1,
+                speedX: (Math.random() - 0.5) * 4,
+                speedY: (Math.random() - 0.5) * 4,
+                life: 60,
+                opacity: 1,
+                color
+            });
+        }
+    };
+
+    function animateParticles() {
+        particleCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+
+        for (let i = particlesArray.length - 1; i >= 0; i--) {
+            const particle = particlesArray[i];
+
+            if (particle.life !== undefined) {
+                particle.x += particle.speedX;
+                particle.y += particle.speedY;
+                particle.life--;
+                particle.opacity -= 0.02;
+
+                particleCtx.beginPath();
+                particleCtx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                particleCtx.fillStyle = `rgba(${particle.color},${Math.max(0, particle.opacity)})`;
+                particleCtx.fill();
+
+                if (particle.life <= 0 || particle.opacity <= 0) {
+                    particlesArray.splice(i, 1);
+                }
+            } else {
+                particle.update();
+                particle.draw();
+            }
+        }
+
+        requestAnimationFrame(animateParticles);
+    }
+
+    animateParticles();
+}
