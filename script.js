@@ -3,6 +3,7 @@ const output = document.getElementById("output");
 const loadingWindow = document.getElementById("loadingWindow");
 const mhText = document.querySelector(".mh-text");
 const mhBar = document.querySelector(".mh-bar");
+const mhContainer = document.querySelector(".mh-container");
 const increaseBtn = document.getElementById("increaseMHBtn");
 const missionsBtn = document.getElementById("missions-btn");
 
@@ -36,6 +37,11 @@ const profileLevel = document.getElementById('profile-level');
 const profileExp = document.getElementById('profile-exp');
 const profileExpNeeded = document.getElementById('profile-exp-needed');
 const expBar = document.getElementById('exp-bar');
+const profileSettingsBtn = document.getElementById('profile-settings-btn');
+const profileSettingsMenu = document.getElementById('profile-settings-menu');
+const graphicsToggleBtn = document.getElementById('graphics-toggle-btn');
+const graphicsOptions = document.getElementById('graphics-options');
+const graphicsOptionButtons = Array.from(document.querySelectorAll('.graphics-option-btn'));
 const rankPopup = document.getElementById('rank-popup');
 const rankPopupText = document.getElementById('rank-popup-text');
 // Registration elements
@@ -100,7 +106,10 @@ const ADMIN_INITIAL_MAX_ATTEMPTS = 3;
 const ADMIN_MIN_MAX_ATTEMPTS = 1;
 const ADMIN_BASE_LOCK_MS = 30000;
 const ADMIN_SECURITY_STORAGE_KEY = 'kitsune_admin_security_v1';
-const NO_BRAIN_TEXT = 'Error404: No Brain Found';
+const GRAPHICS_STORAGE_KEY = 'kitsune_graphics_level_v1';
+const GRAPHICS_LEVELS = ["lowest", "low", "medium", "highest"];
+const DEFAULT_GRAPHICS_LEVEL = "lowest";
+const NO_BRAIN_TEXT = 'Error404: Brain not found';
 const MISSION_EXP_REWARDS = {
     1: 25,
     2: 50,
@@ -127,10 +136,7 @@ let adminLockTicker = null;
 const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const UI_ENTER_CLASSES = ['ui-enter-pop', 'ui-enter-rise', 'ui-enter-slide-left', 'ui-enter-fade', 'yui-dialogue-enter', 'yui-avatar-enter'];
 const UI_EXIT_CLASSES = ['ui-exit-pop', 'ui-exit-drop', 'ui-exit-slide-left', 'ui-exit-fade', 'yui-dialogue-exit'];
-const deviceMemoryGb = Number(navigator.deviceMemory) || 0;
-if (deviceMemoryGb && deviceMemoryGb <= 2) {
-    document.documentElement.classList.add('low-memory-device');
-}
+let currentGraphicsLevel = getStoredGraphicsLevel();
 const ADMIN_LAYOUT_STORAGE_KEY = 'kitsune_admin_layout_v1';
 const ADMIN_DRAG_HOLD_MS = 280;
 const ADMIN_DRAG_CANCEL_DISTANCE = 12;
@@ -149,6 +155,87 @@ let pendingAdminDragHold = null;
 let activeAdminDrag = null;
 let adminDragEventsBound = false;
 let activeMissionGame = null;
+let lastTypingInterval = null;
+
+function getStoredGraphicsLevel() {
+    try {
+        const savedLevel = window.localStorage.getItem(GRAPHICS_STORAGE_KEY);
+        return GRAPHICS_LEVELS.includes(savedLevel) ? savedLevel : DEFAULT_GRAPHICS_LEVEL;
+    } catch (error) {
+        return DEFAULT_GRAPHICS_LEVEL;
+    }
+}
+
+function getGraphicsConfig(level = currentGraphicsLevel) {
+    const resolvedLevel = GRAPHICS_LEVELS.includes(level) ? level : DEFAULT_GRAPHICS_LEVEL;
+    const configs = {
+        lowest: { particleDpr: 1, baseParticles: 22, linkLimit: 0, maxParticles: 48, burstCap: 8, pointer: false, shadows: false, linkEvery: 0 },
+        low: { particleDpr: 1, baseParticles: 36, linkLimit: 18, maxParticles: 80, burstCap: 16, pointer: false, shadows: false, linkEvery: 5 },
+        medium: { particleDpr: 1.25, baseParticles: 62, linkLimit: 38, maxParticles: 130, burstCap: 36, pointer: true, shadows: true, linkEvery: 3 },
+        highest: { particleDpr: 1.5, baseParticles: 96, linkLimit: 72, maxParticles: 220, burstCap: 90, pointer: true, shadows: true, linkEvery: 2 }
+    };
+    return configs[resolvedLevel];
+}
+
+function applyGraphicsLevel(level, { persist = true, announce = false } = {}) {
+    const nextLevel = GRAPHICS_LEVELS.includes(level) ? level : DEFAULT_GRAPHICS_LEVEL;
+    currentGraphicsLevel = nextLevel;
+
+    document.documentElement.classList.remove(
+        ...GRAPHICS_LEVELS.map((graphicsLevel) => `graphics-${graphicsLevel}`),
+        'performance-lite'
+    );
+    document.documentElement.classList.add(`graphics-${nextLevel}`);
+
+    graphicsOptionButtons.forEach((btn) => {
+        const selected = btn.dataset.graphicsLevel === nextLevel;
+        btn.classList.toggle('active', selected);
+        btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+
+    if (persist) {
+        try {
+            window.localStorage.setItem(GRAPHICS_STORAGE_KEY, nextLevel);
+        } catch (error) {
+            // Storage can be unavailable in restricted preview contexts.
+        }
+    }
+
+    window.dispatchEvent(new CustomEvent('kitsune:graphics-change', { detail: { level: nextLevel } }));
+    if (announce) typeText(`Graphics set to ${nextLevel}.`);
+}
+
+function restartAnimation(element, className) {
+    if (!element || prefersReducedMotion) return;
+    element.classList.remove(className);
+    void element.offsetWidth;
+    element.classList.add(className);
+}
+
+function pulseElement(element, className, durationMs = 520) {
+    if (!element || prefersReducedMotion) return;
+    restartAnimation(element, className);
+    window.setTimeout(() => element.classList.remove(className), durationMs);
+}
+
+function burstFromElement(element, color = "0,255,200", amount = 24) {
+    if (!element || prefersReducedMotion) return;
+    const rect = element.getBoundingClientRect();
+    particleBurst(rect.left + rect.width / 2, rect.top + rect.height / 2, color, amount);
+}
+
+function addButtonRipple(event) {
+    const button = event.target.closest('button');
+    if (!button || button.disabled || prefersReducedMotion) return;
+
+    const rect = button.getBoundingClientRect();
+    const ripple = document.createElement('span');
+    ripple.className = 'button-ripple';
+    ripple.style.left = `${event.clientX - rect.left}px`;
+    ripple.style.top = `${event.clientY - rect.top}px`;
+    button.appendChild(ripple);
+    ripple.addEventListener('animationend', () => ripple.remove(), { once: true });
+}
 
 function clearUiAnimationClasses(element) {
     if (!element) return;
@@ -2308,7 +2395,7 @@ function showRankPopup(oldRank, newRank) {
     else if (newRank === "C") burstColor = "255,150,0";
     else if (newRank === "D") burstColor = "255,50,50";
     else if (newRank === "ADMIN" || newRank === "ROOT ADMIN") burstColor = "180,80,255";
-    particleBurst(window.innerWidth / 2, window.innerHeight / 2, burstColor);
+    particleBurst(window.innerWidth / 2, window.innerHeight / 2, burstColor, 90);
 
     clearTimeout(rankPopupTimer);
     clearTimeout(rankPopupHideTimer);
@@ -2358,6 +2445,7 @@ function setUsernameFromInput() {
     updateRank();
     renderProfile();
     unlockFeatures();
+    burstFromElement(registerPanel, adminAttempt ? "180,80,255" : "0,255,200", 34);
     if (adminAttempt) {
         if (adminPermanentlyLocked) {
             typeText('Admin account locked. Verify recovery ID to unlock.');
@@ -2395,12 +2483,36 @@ if (missionGameCloseBtn) missionGameCloseBtn.addEventListener('click', () => clo
 missionOptionButtons.forEach((btn) => {
     btn.addEventListener('click', () => completeSelectedMission(btn.dataset.missionLevel));
 });
+if (profileSettingsBtn && profileSettingsMenu) {
+    profileSettingsBtn.addEventListener('click', () => {
+        const willShow = profileSettingsMenu.classList.contains('hidden');
+        profileSettingsMenu.classList.toggle('hidden', !willShow);
+        profileSettingsBtn.setAttribute('aria-expanded', willShow ? 'true' : 'false');
+    });
+}
+if (graphicsToggleBtn && graphicsOptions) {
+    graphicsToggleBtn.addEventListener('click', () => {
+        graphicsOptions.classList.toggle('hidden');
+    });
+}
+graphicsOptionButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+        applyGraphicsLevel(btn.dataset.graphicsLevel, { announce: true });
+    });
+});
 if (adminPanel) adminPanel.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
         e.preventDefault();
         applyAdminChanges();
     }
 });
+document.addEventListener('pointerdown', addButtonRipple, { passive: true });
+document.addEventListener('pointerdown', (event) => {
+    if (!profileSettingsMenu || profileSettingsMenu.classList.contains('hidden')) return;
+    if (event.target.closest('#profile-panel')) return;
+    profileSettingsMenu.classList.add('hidden');
+    if (profileSettingsBtn) profileSettingsBtn.setAttribute('aria-expanded', 'false');
+}, { passive: true });
 
 // show or hide registration panel depending on username
 if (registerPanel) {
@@ -2521,6 +2633,8 @@ function updateMHBar() {
     if (!hasBrain) {
         mhBar.style.width = "0%";
         mhText.textContent = NO_BRAIN_TEXT;
+        mhText.style.color = "#ffd1d1";
+        mhText.style.textShadow = "0 0 6px rgba(0,0,0,0.9), 0 0 8px rgba(255,45,45,0.65)";
         mhBar.style.background = "linear-gradient(to right, #ff4c4c,#ff0000)";
         mhBar.style.boxShadow = `0 0 15px ${mhGlow}`;
         updateMissionSelectorAvailability();
@@ -2529,6 +2643,8 @@ function updateMHBar() {
 
     mhBar.style.width = hp + "%";
     mhText.textContent = `Mental Health: ${hp}%`;
+    mhText.style.color = hp <= 25 ? "#ffe8e8" : "#001412";
+    mhText.style.textShadow = hp <= 25 ? "0 0 6px rgba(0,0,0,0.9), 0 0 8px rgba(255,45,45,0.65)" : "0 1px 2px rgba(255,255,255,0.45)";
 
     if (hp <= 25) {
         mhBar.style.background = "linear-gradient(to right, #ff4c4c,#ff0000)";
@@ -2544,6 +2660,7 @@ function updateMHBar() {
         mhGlow = "rgba(0,255,0,0.75)";
     }
     mhBar.style.boxShadow = `0 0 15px ${mhGlow}`;
+    pulseElement(mhContainer, 'mh-pulse', 440);
 
     updateMissionSelectorAvailability();
 }
@@ -2567,12 +2684,17 @@ function triggerSystemLock() {
 
 /* ================== Typing Effect ================== */
 function typeText(text) {
+    if (lastTypingInterval) clearInterval(lastTypingInterval);
     output.textContent = "";
+    restartAnimation(output, 'output-refresh');
     let i = 0;
-    const interval = setInterval(() => {
+    lastTypingInterval = setInterval(() => {
         output.textContent += text.charAt(i);
         i++;
-        if (i >= text.length) clearInterval(interval);
+        if (i >= text.length) {
+            clearInterval(lastTypingInterval);
+            lastTypingInterval = null;
+        }
     }, 25);
 }
 
@@ -2890,17 +3012,26 @@ function showQuestion() {
 function selectAnswer(selected){
     if (!requireUsername()) return;
     const correct = quizData[currentQ].answer;
+    const buttons = Array.from(quizAnswers.querySelectorAll('.quiz-answer-btn'));
+    buttons.forEach((btn) => {
+        btn.disabled = true;
+    });
+    if (buttons[correct]) buttons[correct].classList.add('answer-correct');
+    if (selected !== correct && buttons[selected]) buttons[selected].classList.add('answer-wrong');
+    burstFromElement(buttons[selected], selected === correct ? "80,255,140" : "255,70,110", selected === correct ? 28 : 16);
 
-    if(currentQ===quizData.length-1 && selected!==correct){
-        changeMentalHealth(-100);
-    } else {
-        if(selected===correct) changeMentalHealth(10);
-        else changeMentalHealth(-5);
-    }
+    window.setTimeout(() => {
+        if(currentQ===quizData.length-1 && selected!==correct){
+            changeMentalHealth(-100);
+        } else {
+            if(selected===correct) changeMentalHealth(10);
+            else changeMentalHealth(-5);
+        }
 
-    currentQ++;
-    if(currentQ<quizData.length) showQuestion();
-    else finishQuiz();
+        currentQ++;
+        if(currentQ<quizData.length) showQuestion();
+        else finishQuiz();
+    }, prefersReducedMotion ? 0 : 520);
 }
 
 function finishQuiz(){
@@ -2908,6 +3039,7 @@ function finishQuiz(){
 }
 
 // Initialize UI bindings
+applyGraphicsLevel(currentGraphicsLevel, { persist: false });
 initAdminDragSystem();
 renderProfile();
 updateMHBar();
@@ -2918,13 +3050,40 @@ const particleCanvas = document.getElementById("particles");
 const particleCtx = particleCanvas ? particleCanvas.getContext("2d") : null;
 
 if (particleCanvas && particleCtx) {
+    const particlePointer = { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false };
+    let particleConfig = getGraphicsConfig();
+    let particleDpr = Math.min(window.devicePixelRatio || 1, particleConfig.particleDpr);
+    let particleAnimationId = null;
+    let particleFrame = 0;
+    let isParticleLoopPaused = document.hidden || prefersReducedMotion;
+    let resizeParticleRaf = null;
+
     function resizeParticleCanvas() {
-        particleCanvas.width = window.innerWidth;
-        particleCanvas.height = window.innerHeight;
+        particleDpr = Math.min(window.devicePixelRatio || 1, particleConfig.particleDpr);
+        particleCanvas.width = Math.floor(window.innerWidth * particleDpr);
+        particleCanvas.height = Math.floor(window.innerHeight * particleDpr);
+        particleCanvas.style.width = `${window.innerWidth}px`;
+        particleCanvas.style.height = `${window.innerHeight}px`;
+        particleCtx.setTransform(particleDpr, 0, 0, particleDpr, 0, 0);
     }
 
     resizeParticleCanvas();
-    window.addEventListener("resize", resizeParticleCanvas);
+    window.addEventListener("resize", () => {
+        if (resizeParticleRaf) return;
+        resizeParticleRaf = requestAnimationFrame(() => {
+            resizeParticleRaf = null;
+            resizeParticleCanvas();
+        });
+    });
+    window.addEventListener("pointermove", (event) => {
+        if (!particleConfig.pointer || prefersReducedMotion) return;
+        particlePointer.x = event.clientX;
+        particlePointer.y = event.clientY;
+        particlePointer.active = true;
+    }, { passive: true });
+    window.addEventListener("pointerleave", () => {
+        particlePointer.active = false;
+    });
 
     class Particle {
         constructor() {
@@ -2932,18 +3091,34 @@ if (particleCanvas && particleCtx) {
         }
 
         reset() {
-            this.x = Math.random() * particleCanvas.width;
-            this.y = Math.random() * particleCanvas.height;
-            this.size = Math.random() * 2 + 1;
-            this.speedY = Math.random() * 0.5 + 0.2;
-            this.opacity = Math.random();
+            this.x = Math.random() * window.innerWidth;
+            this.y = Math.random() * window.innerHeight;
+            this.size = Math.random() * (currentGraphicsLevel === "highest" ? 2.8 : 2.2) + 0.7;
+            this.speedY = Math.random() * 0.55 + 0.16;
+            this.speedX = (Math.random() - 0.5) * 0.18;
+            this.opacity = Math.random() * 0.65 + 0.25;
+            this.phase = Math.random() * Math.PI * 2;
         }
 
         update() {
+            this.phase += 0.018;
+            this.x += this.speedX + Math.sin(this.phase) * 0.08;
             this.y -= this.speedY;
-            if (this.y < 0) {
+
+            if (particlePointer.active) {
+                const dx = this.x - particlePointer.x;
+                const dy = this.y - particlePointer.y;
+                const distanceSq = dx * dx + dy * dy;
+                if (distanceSq < 16000 && distanceSq > 1) {
+                    const force = (16000 - distanceSq) / 16000;
+                    this.x += (dx / Math.sqrt(distanceSq)) * force * 1.2;
+                    this.y += (dy / Math.sqrt(distanceSq)) * force * 1.2;
+                }
+            }
+
+            if (this.y < -8 || this.x < -8 || this.x > window.innerWidth + 8) {
                 this.reset();
-                this.y = particleCanvas.height;
+                this.y = window.innerHeight + 8;
             }
         }
 
@@ -2964,24 +3139,47 @@ if (particleCanvas && particleCtx) {
             }
 
             particleCtx.fillStyle = color;
+            if (particleConfig.shadows && !prefersReducedMotion) {
+                particleCtx.shadowColor = color;
+                particleCtx.shadowBlur = 8;
+            }
             particleCtx.fill();
+            particleCtx.shadowBlur = 0;
         }
     }
 
     const particlesArray = [];
-    for (let i = 0; i < 80; i++) {
+    function syncBaseParticles() {
+        if (prefersReducedMotion) {
+            particlesArray.length = 0;
+            return;
+        }
+        while (particlesArray.length < particleConfig.baseParticles) {
+            particlesArray.push(new Particle());
+        }
+        while (particlesArray.length > particleConfig.baseParticles) {
+            particlesArray.pop();
+        }
+    }
+
+    for (let i = 0; i < particleConfig.baseParticles; i++) {
         particlesArray.push(new Particle());
     }
 
-    particleBurst = function burstParticles(x, y, color) {
-        for (let i = 0; i < 40; i++) {
+    particleBurst = function burstParticles(x, y, color, amount = 40) {
+        if (prefersReducedMotion || document.hidden) return;
+        const cappedAmount = Math.min(amount, particleConfig.burstCap, Math.max(0, particleConfig.maxParticles - particlesArray.length));
+        for (let i = 0; i < cappedAmount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Math.random() * (currentGraphicsLevel === "highest" ? 4.4 : 2.8) + 0.6;
             particlesArray.push({
                 x,
                 y,
-                size: Math.random() * 3 + 1,
-                speedX: (Math.random() - 0.5) * 4,
-                speedY: (Math.random() - 0.5) * 4,
-                life: 60,
+                size: Math.random() * (currentGraphicsLevel === "highest" ? 3.4 : 2.4) + 1,
+                speedX: Math.cos(angle) * speed,
+                speedY: Math.sin(angle) * speed,
+                life: Math.floor(Math.random() * 28) + 46,
+                maxLife: 74,
                 opacity: 1,
                 color
             });
@@ -2989,7 +3187,12 @@ if (particleCanvas && particleCtx) {
     };
 
     function animateParticles() {
-        particleCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+        if (isParticleLoopPaused) {
+            particleAnimationId = null;
+            return;
+        }
+        particleFrame++;
+        particleCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
         for (let i = particlesArray.length - 1; i >= 0; i--) {
             const particle = particlesArray[i];
@@ -2997,13 +3200,20 @@ if (particleCanvas && particleCtx) {
             if (particle.life !== undefined) {
                 particle.x += particle.speedX;
                 particle.y += particle.speedY;
+                particle.speedX *= 0.982;
+                particle.speedY *= 0.982;
                 particle.life--;
-                particle.opacity -= 0.02;
+                particle.opacity = Math.max(0, particle.life / particle.maxLife);
 
                 particleCtx.beginPath();
                 particleCtx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                if (particleConfig.shadows && !prefersReducedMotion) {
+                    particleCtx.shadowColor = `rgba(${particle.color},${Math.max(0, particle.opacity)})`;
+                    particleCtx.shadowBlur = 14;
+                }
                 particleCtx.fillStyle = `rgba(${particle.color},${Math.max(0, particle.opacity)})`;
                 particleCtx.fill();
+                particleCtx.shadowBlur = 0;
 
                 if (particle.life <= 0 || particle.opacity <= 0) {
                     particlesArray.splice(i, 1);
@@ -3014,8 +3224,67 @@ if (particleCanvas && particleCtx) {
             }
         }
 
-        requestAnimationFrame(animateParticles);
+        if (particlePointer.active && particleConfig.pointer && !prefersReducedMotion) {
+            particleCtx.beginPath();
+            particleCtx.arc(particlePointer.x, particlePointer.y, 38, 0, Math.PI * 2);
+            particleCtx.strokeStyle = "rgba(0,255,204,0.09)";
+            particleCtx.lineWidth = 1;
+            particleCtx.stroke();
+        }
+
+        if (particleConfig.linkEvery > 0 && particleFrame % particleConfig.linkEvery === 0 && particlesArray.length > 1 && !prefersReducedMotion) {
+            const linkLimit = Math.min(particlesArray.length, particleConfig.linkLimit);
+            for (let i = 0; i < linkLimit; i++) {
+                const a = particlesArray[i];
+                if (a.life !== undefined) continue;
+                for (let j = i + 1; j < linkLimit; j++) {
+                    const b = particlesArray[j];
+                    if (b.life !== undefined) continue;
+                    const dx = a.x - b.x;
+                    const dy = a.y - b.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < 92) {
+                        particleCtx.beginPath();
+                        particleCtx.moveTo(a.x, a.y);
+                        particleCtx.lineTo(b.x, b.y);
+                        particleCtx.strokeStyle = `rgba(0,255,204,${(1 - distance / 92) * 0.13})`;
+                        particleCtx.lineWidth = 0.7;
+                        particleCtx.stroke();
+                    }
+                }
+            }
+        }
+
+        particleAnimationId = requestAnimationFrame(animateParticles);
     }
 
-    animateParticles();
+    function startParticleLoop() {
+        if (prefersReducedMotion || particleAnimationId) return;
+        isParticleLoopPaused = false;
+        particleAnimationId = requestAnimationFrame(animateParticles);
+    }
+
+    function stopParticleLoop() {
+        isParticleLoopPaused = true;
+        if (particleAnimationId) {
+            cancelAnimationFrame(particleAnimationId);
+            particleAnimationId = null;
+        }
+    }
+
+    document.addEventListener("visibilitychange", () => {
+        if (document.hidden) stopParticleLoop();
+        else startParticleLoop();
+    });
+
+    window.addEventListener('kitsune:graphics-change', () => {
+        particleConfig = getGraphicsConfig();
+        particlePointer.active = false;
+        resizeParticleCanvas();
+        syncBaseParticles();
+        if (document.hidden || prefersReducedMotion) stopParticleLoop();
+        else startParticleLoop();
+    });
+
+    startParticleLoop();
 }

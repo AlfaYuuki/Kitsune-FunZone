@@ -16,7 +16,7 @@
 <!-- Mental Health Bar -->
 <div class="mh-container">
   <div class="mh-bar">
-    <span class="mh-text">Error404: No Brain Found</span>
+    <span class="mh-text">Error404: Brain not found</span>
   </div>
 </div>
 
@@ -29,6 +29,19 @@
     <div class="exp-bar-bg"><div id="exp-bar" class="exp-bar-fill"></div></div>
     <div class="exp-text"><span id="profile-exp">0</span>/<span id="profile-exp-needed">100</span> EXP</div>
  </div>
+  <div class="profile-settings">
+    <button id="profile-settings-btn" class="profile-settings-btn" type="button" aria-label="Settings" title="Settings">⚙</button>
+    <div id="profile-settings-menu" class="profile-settings-menu hidden">
+      <div class="settings-title">Settings</div>
+      <button id="graphics-toggle-btn" class="graphics-toggle-btn" type="button">Graphics</button>
+      <div id="graphics-options" class="graphics-options hidden" role="group" aria-label="Graphics settings">
+        <button class="graphics-option-btn" data-graphics-level="lowest" type="button">Lowest</button>
+        <button class="graphics-option-btn" data-graphics-level="low" type="button">Low</button>
+        <button class="graphics-option-btn" data-graphics-level="medium" type="button">Medium</button>
+        <button class="graphics-option-btn" data-graphics-level="highest" type="button">Highest</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Registration Panel -->
