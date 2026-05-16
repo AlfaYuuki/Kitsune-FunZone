@@ -30,6 +30,7 @@
     <div class="exp-text"><span id="profile-exp">0</span>/<span id="profile-exp-needed">100</span> EXP</div>
  </div>
   <div class="profile-settings">
+    <button id="profile-save-btn" class="profile-save-btn" type="button" aria-label="Save user data" title="Save user data">&#128190;</button>
     <button id="profile-settings-btn" class="profile-settings-btn" type="button" aria-label="Settings" title="Settings">⚙</button>
     <div id="profile-settings-menu" class="profile-settings-menu hidden">
       <div class="settings-title">Settings</div>
@@ -40,6 +41,8 @@
         <button class="graphics-option-btn" data-graphics-level="medium" type="button">Medium</button>
         <button class="graphics-option-btn" data-graphics-level="highest" type="button">Highest</button>
       </div>
+      <button id="update-catalog-btn" class="update-catalog-btn" type="button">Update Catalog</button>
+      <button id="erase-save-btn" class="erase-save-btn" type="button">Erase Saved User Data</button>
     </div>
   </div>
 </div>
@@ -140,6 +143,7 @@
     <button class="mission-btn" data-mission-level="2" type="button">Level 2 (+50 EXP)</button>
     <button class="mission-btn" data-mission-level="3" type="button">Level 3 (+75 EXP)</button>
     <button class="mission-btn" data-mission-level="4" type="button">Level 4 (+100 EXP)</button>
+    <button class="mission-btn admin-mission-btn hidden" data-mission-level="5" type="button">Admin Exclusive: System Debug (+250 EXP)</button>
   </div>
   <div id="mission-hint" class="mission-hint">Reach 25% mental health to unlock missions.</div>
   <button id="mission-close-btn" type="button">Close</button>
@@ -156,6 +160,121 @@
   </div>
   <div id="mission-game-status" class="mission-game-status"></div>
   <div id="mission-game-content" class="mission-game-content"></div>
+</div>
+
+<!-- Update Catalog -->
+<div id="update-catalog-panel" class="update-catalog-panel hidden" aria-label="Update Catalog">
+  <div class="update-catalog-header">
+    <div>
+      <div class="update-catalog-title">Update Catalog</div>
+      <div class="update-catalog-subtitle">Kitsune FunZone v1.0 - v2.7</div>
+    </div>
+    <button id="update-catalog-close-btn" class="update-catalog-close-btn" type="button" aria-label="Close update catalog">Close</button>
+  </div>
+  <div class="update-catalog-list">
+    <article class="update-entry latest">
+      <span class="update-version">v2.7</span>
+      <h3>Release Candidate</h3>
+      <p>Added this Update Catalog and reduced Mental Health bar flicker during active play.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.6</span>
+      <h3>Yui Emergency Support</h3>
+      <p>Yui now reacts when Mental Health drops below 10%, and Sword Skill Burst can be charged again after use.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.5</span>
+      <h3>Sword Skill Burst</h3>
+      <p>Added the bottom Sword Skill meter, charge from Joke, Chaos, and Fake AI, and Burst mission assist.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.4</span>
+      <h3>Admin Debug Mission</h3>
+      <p>Added the admin-exclusive System Debug mission with moving bug targets and special admin access rules.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.3</span>
+      <h3>Rank Feedback</h3>
+      <p>Added rank-change popups, burst effects, and stronger visual feedback when the player moves between ranks.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.2</span>
+      <h3>Reactive Particles</h3>
+      <p>Added the background particle system with Mental Health color reactions and rank-change bursts.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.1</span>
+      <h3>Elite Mission</h3>
+      <p>Added Mission Level 4 with harder survival-style gameplay and higher EXP rewards.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.0</span>
+      <h3>Playable Missions</h3>
+      <p>Expanded missions into active mini-games with timers, challenge windows, pass states, and fail states.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.9</span>
+      <h3>SAO Polish Pass</h3>
+      <p>Improved glass panels, glow, hover feedback, transitions, and the overall SAO-style interface feel.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.8</span>
+      <h3>Graphics Options</h3>
+      <p>Added graphics levels so low-end devices can reduce particles, shadows, and heavy visual effects.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.7</span>
+      <h3>Profile Save</h3>
+      <p>Added local profile saving, saved-data restore, dirty-state warnings, and erase saved data support.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.6</span>
+      <h3>Admin Controls</h3>
+      <p>Added admin verification, admin profile editing, custom rank control, lockouts, and recovery handling.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.5</span>
+      <h3>EXP And Rank</h3>
+      <p>Added EXP, level progression, rank calculation, profile rank display, and level-up messaging.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.4</span>
+      <h3>Mission Unlocks</h3>
+      <p>Added mission access based on Mental Health thresholds and visible mission availability hints.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.3</span>
+      <h3>Quiz System</h3>
+      <p>Added the Mental Health quiz flow, answer feedback, wrong-answer penalties, and completion dialogue.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.2</span>
+      <h3>Yui And Mental Health</h3>
+      <p>Added Add Brain, Mental Health changes, Yui dialogue, and the first guided support flow.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.1</span>
+      <h3>Profile Gate</h3>
+      <p>Added username setup, profile display, locked controls before registration, and profile switching.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v1.0</span>
+      <h3>Release</h3>
+      <p>Released the first Kitsune FunZone build with Joke, Chaos, Fake AI, core output text, and the base SAO layout.</p>
+    </article>
+  </div>
+</div>
+
+<!-- Sword Skill Bar -->
+<div id="skill-bar" class="skill-bar" aria-label="Sword Skill charge">
+  <div class="skill-bar-top">
+    <span class="skill-label">Sword Skill</span>
+    <span id="skill-charge-text" class="skill-charge-text">0%</span>
+  </div>
+  <div class="skill-meter" aria-hidden="true">
+    <div id="skill-meter-fill" class="skill-meter-fill"></div>
+  </div>
+  <button id="skill-burst-btn" class="skill-burst-btn" type="button" disabled>Burst</button>
 </div>
 
 <!-- Admin Toggle -->

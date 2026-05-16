@@ -20,6 +20,13 @@ const missionGameSubtitle = document.getElementById("mission-game-subtitle");
 const missionGameStatus = document.getElementById("mission-game-status");
 const missionGameContent = document.getElementById("mission-game-content");
 const missionGameCloseBtn = document.getElementById("mission-game-close-btn");
+const skillBar = document.getElementById("skill-bar");
+const skillChargeText = document.getElementById("skill-charge-text");
+const skillMeterFill = document.getElementById("skill-meter-fill");
+const skillBurstBtn = document.getElementById("skill-burst-btn");
+const updateCatalogBtn = document.getElementById("update-catalog-btn");
+const updateCatalogPanel = document.getElementById("update-catalog-panel");
+const updateCatalogCloseBtn = document.getElementById("update-catalog-close-btn");
 
 /* ================== USER PROFILE (Upgrade 1) ================== */
 const userProfile = {
@@ -37,11 +44,13 @@ const profileLevel = document.getElementById('profile-level');
 const profileExp = document.getElementById('profile-exp');
 const profileExpNeeded = document.getElementById('profile-exp-needed');
 const expBar = document.getElementById('exp-bar');
+const profileSaveBtn = document.getElementById('profile-save-btn');
 const profileSettingsBtn = document.getElementById('profile-settings-btn');
 const profileSettingsMenu = document.getElementById('profile-settings-menu');
 const graphicsToggleBtn = document.getElementById('graphics-toggle-btn');
 const graphicsOptions = document.getElementById('graphics-options');
 const graphicsOptionButtons = Array.from(document.querySelectorAll('.graphics-option-btn'));
+const eraseSaveBtn = document.getElementById('erase-save-btn');
 const rankPopup = document.getElementById('rank-popup');
 const rankPopupText = document.getElementById('rank-popup-text');
 // Registration elements
@@ -106,6 +115,8 @@ const ADMIN_INITIAL_MAX_ATTEMPTS = 3;
 const ADMIN_MIN_MAX_ATTEMPTS = 1;
 const ADMIN_BASE_LOCK_MS = 30000;
 const ADMIN_SECURITY_STORAGE_KEY = 'kitsune_admin_security_v1';
+const PROFILE_SAVE_STORAGE_KEY = 'kitsune_profile_save_v1';
+const SPECIAL_MOVE_MAX = 100;
 const GRAPHICS_STORAGE_KEY = 'kitsune_graphics_level_v1';
 const GRAPHICS_LEVELS = ["lowest", "low", "medium", "highest"];
 const DEFAULT_GRAPHICS_LEVEL = "lowest";
@@ -114,7 +125,8 @@ const MISSION_EXP_REWARDS = {
     1: 25,
     2: 50,
     3: 75,
-    4: 100
+    4: 100,
+    5: 250
 };
 const MISSION_REQUIREMENTS = {
     1: 25,
@@ -156,6 +168,10 @@ let activeAdminDrag = null;
 let adminDragEventsBound = false;
 let activeMissionGame = null;
 let lastTypingInterval = null;
+let hasUnsavedProfileChanges = false;
+let specialMoveCharge = 0;
+let specialMoveStocks = 0;
+let lastRenderedMentalHealth = null;
 
 function getStoredGraphicsLevel() {
     try {
@@ -237,6 +253,113 @@ function addButtonRipple(event) {
     ripple.addEventListener('animationend', () => ripple.remove(), { once: true });
 }
 
+function setProfileDirty(isDirty) {
+    hasUnsavedProfileChanges = Boolean(isDirty);
+    if (profileSaveBtn) {
+        profileSaveBtn.classList.toggle('dirty', hasUnsavedProfileChanges);
+        profileSaveBtn.title = hasUnsavedProfileChanges ? 'Save user data' : 'User data saved';
+    }
+}
+
+function markProfileDirty() {
+    if (hasUsername()) setProfileDirty(true);
+}
+
+function getProfileSavePayload() {
+    return {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        profile: {
+            username: userProfile.username,
+            level: userProfile.level,
+            exp: userProfile.exp,
+            rank: userProfile.rank,
+            mentalHealth: userProfile.mentalHealth
+        },
+        state: {
+            hasBrain,
+            adminCustomRank,
+            isAdminVerified: isAdminUser(),
+            isAdminPanelHiddenByUser
+        }
+    };
+}
+
+function saveProfile() {
+    if (!hasUsername()) {
+        typeText('Set your username before saving user data.');
+        showRegisterPanel();
+        return false;
+    }
+
+    try {
+        localStorage.setItem(PROFILE_SAVE_STORAGE_KEY, JSON.stringify(getProfileSavePayload()));
+        setProfileDirty(false);
+        typeText('Data Link Start: user data saved.');
+        return true;
+    } catch {
+        typeText('Data Link failed. Browser storage is unavailable.');
+        return false;
+    }
+}
+
+function eraseSavedProfile() {
+    const confirmed = window.confirm('Erase saved user data from this browser? Current on-screen data will stay until you refresh or change it.');
+    if (!confirmed) return;
+
+    try {
+        localStorage.removeItem(PROFILE_SAVE_STORAGE_KEY);
+        setProfileDirty(hasUsername());
+        typeText('Saved user data erased from localStorage.');
+    } catch {
+        typeText('Could not erase saved data. Browser storage is unavailable.');
+    }
+}
+
+function loadSavedProfile() {
+    try {
+        const rawSave = localStorage.getItem(PROFILE_SAVE_STORAGE_KEY);
+        if (!rawSave) return false;
+        const saved = JSON.parse(rawSave);
+        const savedProfile = saved && saved.profile;
+        if (!savedProfile || typeof savedProfile !== 'object') return false;
+
+        const savedUsername = String(savedProfile.username || '').trim().slice(0, 20);
+        if (!savedUsername) return false;
+
+        const savedLevel = Math.max(1, Number.parseInt(savedProfile.level, 10) || 1);
+        const savedExp = Math.max(0, Number.parseInt(savedProfile.exp, 10) || 0);
+        const savedMentalHealth = Math.max(0, Math.min(100, Number.parseInt(savedProfile.mentalHealth, 10) || 0));
+        const savedRank = ADMIN_RANKS.includes(savedProfile.rank) ? savedProfile.rank : "D";
+
+        userProfile.username = savedUsername;
+        userProfile.level = savedLevel;
+        userProfile.exp = savedExp;
+        userProfile.mentalHealth = savedMentalHealth;
+        userProfile.rank = savedRank;
+
+        hasBrain = Boolean(saved.state && saved.state.hasBrain);
+        adminCustomRank = ADMIN_RANKS.includes(saved.state && saved.state.adminCustomRank) ? saved.state.adminCustomRank : '';
+        isAdminPanelHiddenByUser = Boolean(saved.state && saved.state.isAdminPanelHiddenByUser);
+        applyAdminSecurityStateFor(savedUsername);
+        isAdminVerified = Boolean(saved.state && saved.state.isAdminVerified && isAdminName(savedUsername) && !isAdminAccountLocked());
+
+        if (!isAdminName(savedUsername)) {
+            isAdminVerified = false;
+            adminCustomRank = '';
+            updateRank();
+        } else if (isAdminVerified && !adminCustomRank) {
+            adminCustomRank = isRootAdminName(savedUsername) ? "ROOT ADMIN" : "ADMIN";
+            userProfile.rank = adminCustomRank;
+        }
+
+        setProfileDirty(false);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function clearUiAnimationClasses(element) {
     if (!element) return;
     element.classList.remove(...UI_ENTER_CLASSES, ...UI_EXIT_CLASSES);
@@ -285,6 +408,16 @@ function hideWithAnimation(element, exitClass = 'ui-exit-fade', onDone) {
     setTimeout(finish, 450);
 }
 
+function showUpdateCatalog() {
+    showWithAnimation(updateCatalogPanel, 'ui-enter-pop');
+    if (profileSettingsMenu) profileSettingsMenu.classList.add('hidden');
+    if (profileSettingsBtn) profileSettingsBtn.setAttribute('aria-expanded', 'false');
+}
+
+function hideUpdateCatalog() {
+    hideWithAnimation(updateCatalogPanel, 'ui-exit-pop');
+}
+
 function hasUsername() {
     return Boolean(userProfile.username && userProfile.username.trim().length);
 }
@@ -330,6 +463,65 @@ function setMissionGameStatus(text) {
 function clearMissionGameContent() {
     if (!missionGameContent) return;
     missionGameContent.innerHTML = '';
+}
+
+function updateSkillBar() {
+    const charge = Math.max(0, Math.min(SPECIAL_MOVE_MAX, Math.round(specialMoveCharge)));
+    const ready = specialMoveStocks > 0;
+    const hasActiveMission = Boolean(activeMissionGame && activeMissionGame.active && !activeMissionGame.ended);
+
+    if (skillChargeText) {
+        skillChargeText.textContent = specialMoveStocks > 0
+            ? `Ready x${specialMoveStocks}${charge > 0 ? ` + ${charge}%` : ''}`
+            : `${charge}%`;
+    }
+    if (skillMeterFill) skillMeterFill.style.width = `${ready && charge === 0 ? SPECIAL_MOVE_MAX : charge}%`;
+    if (skillBurstBtn) {
+        skillBurstBtn.disabled = !ready || !hasActiveMission;
+        skillBurstBtn.title = ready ? `Burst stock ready: ${specialMoveStocks}` : 'Charge with Joke, Chaos, or Fake AI';
+    }
+    if (skillBar) {
+        skillBar.classList.toggle('skill-ready', ready);
+        skillBar.classList.toggle('skill-active', hasActiveMission);
+    }
+}
+
+function chargeSpecialMove(amount) {
+    if (!hasUsername()) return;
+    const previousStocks = specialMoveStocks;
+    specialMoveCharge += amount;
+    while (specialMoveCharge >= SPECIAL_MOVE_MAX) {
+        specialMoveCharge -= SPECIAL_MOVE_MAX;
+        specialMoveStocks++;
+    }
+    updateSkillBar();
+
+    if (specialMoveStocks > previousStocks) {
+        if (skillBar) burstFromElement(skillBar, '0,255,204', 28);
+        typeText(`Sword Skill ready x${specialMoveStocks}. Start a mission and press Burst.`);
+    }
+}
+
+function burstActiveMission() {
+    if (!activeMissionGame || !activeMissionGame.active || activeMissionGame.ended) {
+        typeText('Burst needs an active mission.');
+        updateSkillBar();
+        return;
+    }
+    if (specialMoveStocks <= 0) {
+        typeText('Sword Skill is still charging.');
+        updateSkillBar();
+        return;
+    }
+
+    const level = activeMissionGame.level;
+    specialMoveStocks = Math.max(0, specialMoveStocks - 1);
+    updateSkillBar();
+    if (typeof particleBurst === 'function') {
+        particleBurst(window.innerWidth / 2, window.innerHeight * 0.72, '0,255,204', 84);
+    }
+    setMissionGameStatus('Sword Skill Burst activated. Difficult stage cleared.');
+    endMissionRun(level, true, 'Sword Skill Burst');
 }
 
 function createMissionRuntime(level) {
@@ -383,6 +575,7 @@ function closeMissionGameWindow({ silent = false } = {}) {
         clearMissionRuntime(activeMissionGame);
         activeMissionGame = null;
     }
+    updateSkillBar();
     if (wasVisible && missionGameWindow) hideWithAnimation(missionGameWindow, 'ui-exit-pop');
     if (!silent && wasVisible) typeText('Mission closed.');
 }
@@ -405,6 +598,7 @@ function openMissionGameWindow(level, title, subtitle = '') {
         void missionGameWindow.offsetWidth;
         missionGameWindow.classList.add('ui-enter-pop');
     }
+    updateSkillBar();
     return runtime;
 }
 
@@ -413,6 +607,7 @@ function endMissionRun(level, passed, detailText = '') {
     if (!runtime || runtime.ended) return;
     runtime.ended = true;
     clearMissionRuntime(runtime);
+    updateSkillBar();
 
     const reward = MISSION_EXP_REWARDS[level] || 0;
     if (passed) {
@@ -433,17 +628,24 @@ function endMissionRun(level, passed, detailText = '') {
 function updateMissionSelectorAvailability() {
     const usernameReady = hasUsername();
     const maxLevel = getMaxUnlockedMissionLevel();
+    const adminReady = usernameReady && isAdminUser();
 
-    if (missionsBtn) missionsBtn.disabled = !usernameReady || maxLevel <= 0;
+    if (missionsBtn) missionsBtn.disabled = !usernameReady || (maxLevel <= 0 && !adminReady);
     missionOptionButtons.forEach((btn) => {
         const level = Number.parseInt(btn.dataset.missionLevel || '0', 10);
-        const unlocked = usernameReady && level > 0 && level <= maxLevel;
+        const adminOnly = level === 5;
+        const unlocked = adminOnly ? adminReady : usernameReady && level > 0 && level <= maxLevel;
+        btn.classList.toggle('hidden', adminOnly && !adminReady);
         btn.disabled = !unlocked;
         btn.classList.toggle('locked', !unlocked);
     });
-    if (missionHint) missionHint.textContent = getMissionAccessHint(maxLevel);
+    if (missionHint) {
+        missionHint.textContent = adminReady && maxLevel <= 0
+            ? 'Admin Exclusive mission available.'
+            : getMissionAccessHint(maxLevel);
+    }
 
-    if ((!usernameReady || maxLevel <= 0) && activeMissionGame) {
+    if ((!usernameReady || (maxLevel <= 0 && !adminReady)) && activeMissionGame) {
         closeMissionGameWindow({ silent: true });
     }
 }
@@ -457,7 +659,7 @@ function showMissionSelector() {
     if (!requireUsername()) return;
     updateMissionSelectorAvailability();
     const maxLevel = getMaxUnlockedMissionLevel();
-    if (maxLevel <= 0) {
+    if (maxLevel <= 0 && !isAdminUser()) {
         typeText('Missions are locked until you reach 25% mental health.');
         return;
     }
@@ -832,6 +1034,108 @@ function runLogicChallenge(runtime, options, onComplete) {
     renderPuzzle();
 }
 
+function runSystemDebugChallenge(runtime, onComplete) {
+    if (!runtime || !runtime.active || !missionGameContent) return;
+
+    clearMissionGameContent();
+    const gameWrap = document.createElement('div');
+    gameWrap.className = 'debug-game';
+    const hint = document.createElement('div');
+    hint.className = 'debug-hint';
+    hint.textContent = 'Click moving bug icons before the system timer reaches zero.';
+    const arena = document.createElement('div');
+    arena.className = 'debug-arena';
+    const readout = document.createElement('div');
+    readout.className = 'debug-readout';
+    gameWrap.appendChild(hint);
+    gameWrap.appendChild(arena);
+    gameWrap.appendChild(readout);
+    missionGameContent.appendChild(gameWrap);
+
+    const totalSeconds = 35;
+    const requiredFixes = 18;
+    const maxLeaks = 6;
+    let timeLeft = totalSeconds;
+    let fixed = 0;
+    let leaks = 0;
+    let ended = false;
+    let spawnDelay = 720;
+
+    const updateStatus = () => {
+        const status = `Admin Debug | Time ${timeLeft}s | Fixed ${fixed}/${requiredFixes} | Escaped ${leaks}/${maxLeaks}`;
+        setMissionGameStatus(status);
+        readout.textContent = status;
+    };
+
+    const finish = (passed, reason = '') => {
+        if (ended || !runtime.active) return;
+        ended = true;
+        onComplete({ passed, reason, fixed, requiredFixes });
+    };
+
+    const spawnBug = () => {
+        if (ended || !runtime.active) return;
+        const bug = document.createElement('button');
+        bug.type = 'button';
+        bug.className = 'debug-bug';
+        bug.textContent = 'BUG';
+        const arenaRect = arena.getBoundingClientRect();
+        const size = 48;
+        const maxX = Math.max(0, arenaRect.width - size);
+        const maxY = Math.max(0, arenaRect.height - size);
+        const startX = Math.random() * maxX;
+        const startY = Math.random() * maxY;
+        const driftX = (Math.random() - 0.5) * Math.min(160, arenaRect.width * 0.38);
+        const driftY = (Math.random() - 0.5) * Math.min(120, arenaRect.height * 0.34);
+        bug.style.left = `${startX}px`;
+        bug.style.top = `${startY}px`;
+        bug.style.setProperty('--bug-x', `${driftX}px`);
+        bug.style.setProperty('--bug-y', `${driftY}px`);
+        arena.appendChild(bug);
+
+        let resolved = false;
+        const removeBug = (wasFixed) => {
+            if (resolved) return;
+            resolved = true;
+            bug.remove();
+            if (wasFixed) {
+                fixed++;
+                if (fixed >= requiredFixes) {
+                    finish(true, 'All bugs patched');
+                    return;
+                }
+            } else {
+                leaks++;
+                if (leaks >= maxLeaks) {
+                    finish(false, 'Too many bugs escaped');
+                    return;
+                }
+            }
+            updateStatus();
+        };
+
+        bug.addEventListener('click', () => removeBug(true), { once: true });
+        runtimeSetTimeout(runtime, () => removeBug(false), 1600);
+        spawnDelay = Math.max(360, spawnDelay - 18);
+        runtimeSetTimeout(runtime, spawnBug, spawnDelay);
+    };
+
+    runtimeSetInterval(runtime, () => {
+        if (ended || !runtime.active) return;
+        timeLeft--;
+        if (timeLeft <= 0) {
+            timeLeft = 0;
+            updateStatus();
+            finish(fixed >= requiredFixes, fixed >= requiredFixes ? 'Debug complete' : 'Debug timer expired');
+            return;
+        }
+        updateStatus();
+    }, 1000);
+
+    updateStatus();
+    runtimeSetTimeout(runtime, spawnBug, 420);
+}
+
 function startMissionLevel1() {
     const runtime = openMissionGameWindow(
         1,
@@ -1007,6 +1311,20 @@ function startMissionLevel4() {
     launchStage();
 }
 
+function startAdminDebugMission() {
+    const runtime = openMissionGameWindow(
+        5,
+        'Admin Exclusive - System Debug',
+        'Admin Only | Click moving bugs | Patch 18 before 6 escape'
+    );
+    if (!runtime) return;
+    runSystemDebugChallenge(runtime, (result) => {
+        if (!result) return;
+        if (result.passed) endMissionRun(5, true, `Patched ${result.fixed}/${result.requiredFixes} bugs`);
+        else endMissionRun(5, false, result.reason || `Patched ${result.fixed}/${result.requiredFixes} bugs`);
+    });
+}
+
 function validateRankChange(requestedRank) {
     const isRoot = isRootAdminName(userProfile.username);
     const isAdmin = isAdminUser();
@@ -1039,12 +1357,23 @@ function launchMissionLevel(level) {
     else if (level === 2) startMissionLevel2();
     else if (level === 3) startMissionLevel3();
     else if (level === 4) startMissionLevel4();
+    else if (level === 5) startAdminDebugMission();
 }
 
 function completeSelectedMission(level) {
     if (!requireUsername()) return;
     const parsedLevel = Number.parseInt(level, 10);
-    if (!Number.isFinite(parsedLevel) || parsedLevel < 1 || parsedLevel > 4) return;
+    if (!Number.isFinite(parsedLevel) || parsedLevel < 1 || parsedLevel > 5) return;
+
+    if (parsedLevel === 5) {
+        if (!isAdminUser()) {
+            typeText('Admin Exclusive mission locked. Verify admin access first.');
+            return;
+        }
+        hideMissionSelector();
+        launchMissionLevel(parsedLevel);
+        return;
+    }
 
     const maxLevel = getMaxUnlockedMissionLevel();
     if (parsedLevel > maxLevel) {
@@ -1701,6 +2030,7 @@ function verifyAdminPassword() {
     updateRank();
     renderProfile();
     unlockFeatures();
+    markProfileDirty();
     typeText('ADMIN ACCESS GRANTED: Full control enabled.');
 }
 
@@ -1763,6 +2093,7 @@ function toggleAdminPanelVisibility() {
     if (!isAdminUser()) return;
     isAdminPanelHiddenByUser = !isAdminPanelHiddenByUser;
     toggleAdminPanel();
+    markProfileDirty();
 }
 
 function parseIntSafe(value, fallback, min, max) {
@@ -1867,14 +2198,14 @@ function runAutoBugFix({ silent = true } = {}) {
     }
 
     if (missionsBtn) {
-        const shouldDisableMissions = !usernameReady || getMaxUnlockedMissionLevel() <= 0;
+        const shouldDisableMissions = !usernameReady || (getMaxUnlockedMissionLevel() <= 0 && !isAdminUser());
         if (missionsBtn.disabled !== shouldDisableMissions) {
             missionsBtn.disabled = shouldDisableMissions;
             fixes.push('Synced Missions button state');
         }
     }
 
-    if ((!usernameReady || getMaxUnlockedMissionLevel() <= 0) && activeMissionGame) {
+    if ((!usernameReady || (getMaxUnlockedMissionLevel() <= 0 && !isAdminUser())) && activeMissionGame) {
         closeMissionGameWindow({ silent: true });
         fixes.push('Closed inaccessible mission game');
     }
@@ -2289,6 +2620,7 @@ function applyAdminChanges() {
     updateRank();
     renderProfile();
     updateMHBar();
+    markProfileDirty();
 
     if (previousAdminName !== normalizeAdminName(userProfile.username)) {
         isAdminVerified = false;
@@ -2446,6 +2778,7 @@ function setUsernameFromInput() {
     renderProfile();
     unlockFeatures();
     burstFromElement(registerPanel, adminAttempt ? "180,80,255" : "0,255,200", 34);
+    markProfileDirty();
     if (adminAttempt) {
         if (adminPermanentlyLocked) {
             typeText('Admin account locked. Verify recovery ID to unlock.');
@@ -2477,7 +2810,12 @@ if (verifyRecoveryBtn) verifyRecoveryBtn.addEventListener('click', verifyRecover
 if (adminRecoveryInput) adminRecoveryInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') verifyRecoveryId(); });
 if (adminApplyBtn) adminApplyBtn.addEventListener('click', applyAdminChanges);
 if (adminToggleBtn) adminToggleBtn.addEventListener('click', toggleAdminPanelVisibility);
+if (profileSaveBtn) profileSaveBtn.addEventListener('click', saveProfile);
+if (eraseSaveBtn) eraseSaveBtn.addEventListener('click', eraseSavedProfile);
+if (updateCatalogBtn) updateCatalogBtn.addEventListener('click', showUpdateCatalog);
+if (updateCatalogCloseBtn) updateCatalogCloseBtn.addEventListener('click', hideUpdateCatalog);
 if (missionsBtn) missionsBtn.addEventListener('click', showMissionSelector);
+if (skillBurstBtn) skillBurstBtn.addEventListener('click', burstActiveMission);
 if (missionCloseBtn) missionCloseBtn.addEventListener('click', hideMissionSelector);
 if (missionGameCloseBtn) missionGameCloseBtn.addEventListener('click', () => closeMissionGameWindow());
 missionOptionButtons.forEach((btn) => {
@@ -2506,6 +2844,11 @@ if (adminPanel) adminPanel.addEventListener('keydown', (e) => {
         applyAdminChanges();
     }
 });
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && updateCatalogPanel && !updateCatalogPanel.classList.contains('hidden')) {
+        hideUpdateCatalog();
+    }
+});
 document.addEventListener('pointerdown', addButtonRipple, { passive: true });
 document.addEventListener('pointerdown', (event) => {
     if (!profileSettingsMenu || profileSettingsMenu.classList.contains('hidden')) return;
@@ -2513,18 +2856,26 @@ document.addEventListener('pointerdown', (event) => {
     profileSettingsMenu.classList.add('hidden');
     if (profileSettingsBtn) profileSettingsBtn.setAttribute('aria-expanded', 'false');
 }, { passive: true });
+window.addEventListener('beforeunload', (event) => {
+    if (!hasUnsavedProfileChanges) return;
+    event.preventDefault();
+    event.returnValue = 'Save User Data Before Leaving';
+});
 
 // show or hide registration panel depending on username
+const restoredProfile = loadSavedProfile();
 if (registerPanel) {
     if (userProfile.username && userProfile.username.length) {
         hideWithAnimation(registerPanel, 'ui-exit-drop');
         unlockFeatures();
+        if (restoredProfile) typeText('Data Link Start: saved user data restored.');
     } else {
         lockFeatures();
         // if no username, focus input for convenience
         showRegisterPanel();
     }
 }
+updateSkillBar();
 
 function animateValue(element, start, end, duration = 700, formatter) {
     if (!element) return;
@@ -2591,6 +2942,7 @@ function addExp(amount) {
     // notify player
     if (levelUps > 1) typeText(`LEVEL UP x${levelUps}! You are now Level ${newLevel}`);
     else if (levelUps === 1) typeText(`LEVEL UP! You are now Level ${newLevel}`);
+    markProfileDirty();
 
 }
 
@@ -2629,6 +2981,7 @@ function updateRank() {
 /* ================== Mental Health System (Upgrade 2) ================== */
 function updateMHBar() {
     const hp = userProfile.mentalHealth;
+    const didMentalHealthChange = lastRenderedMentalHealth !== hp;
     let mhGlow = "rgba(255,0,0,0.75)";
     if (!hasBrain) {
         mhBar.style.width = "0%";
@@ -2638,6 +2991,8 @@ function updateMHBar() {
         mhBar.style.background = "linear-gradient(to right, #ff4c4c,#ff0000)";
         mhBar.style.boxShadow = `0 0 15px ${mhGlow}`;
         updateMissionSelectorAvailability();
+        resetYuiEmergencyTracking();
+        lastRenderedMentalHealth = null;
         return;
     }
 
@@ -2660,7 +3015,9 @@ function updateMHBar() {
         mhGlow = "rgba(0,255,0,0.75)";
     }
     mhBar.style.boxShadow = `0 0 15px ${mhGlow}`;
-    pulseElement(mhContainer, 'mh-pulse', 440);
+    if (didMentalHealthChange) pulseElement(mhContainer, 'mh-pulse', 440);
+    checkYuiEmergencyDialogue(hp);
+    lastRenderedMentalHealth = hp;
 
     updateMissionSelectorAvailability();
 }
@@ -2672,6 +3029,7 @@ function changeMentalHealth(amount) {
     if (userProfile.mentalHealth > 100) userProfile.mentalHealth = 100;
 
     updateMHBar();
+    markProfileDirty();
 
     if (userProfile.mentalHealth === 0) {
         triggerSystemLock();
@@ -2708,6 +3066,7 @@ function randomJoke() {
         "Error 404: Motivation not found."
     ];
     typeText(jokes[Math.floor(Math.random() * jokes.length)]);
+    chargeSpecialMove(22);
 }
 
 function chaos() {
@@ -2719,6 +3078,7 @@ function chaos() {
         "Chaos level increased by +1 🔥"
     ];
     typeText(chaos[Math.floor(Math.random() * chaos.length)]);
+    chargeSpecialMove(28);
 }
 
 function fakeAI() {
@@ -2730,6 +3090,7 @@ function fakeAI() {
         "Studying is good. Memes are better."
     ];
     typeText(ai[Math.floor(Math.random() * ai.length)]);
+    chargeSpecialMove(25);
 }
 
 /* ================== Add Brain ================== */
@@ -2752,6 +3113,7 @@ function addBrain() {
                 userProfile.mentalHealth = 0;
                 updateMHBar();
                 increaseBtn.disabled = false;
+                markProfileDirty();
                 showYuiDialogue(initialDialogues);
             });
         }, 2000);
@@ -2784,6 +3146,8 @@ let dialogues = [];
 let dialogueIndex = 0;
 let postQuizDialogues = [];
 let postQuizDialoguePoses = [];
+let lastYuiEmergencyMh = null;
+let yuiEmergencyShown = false;
 
 function setYuiPose(poseClass) {
     if (!yuiAvatar) return;
@@ -2875,6 +3239,18 @@ const warningDialoguePoses = [
     "pose-cheer"
 ];
 
+const emergencyDialogues = [
+    "Yui: Emergency alert. Your Mental Health is below 10%.",
+    "Yui: Stop pushing forward for a moment.",
+    "Yui: Use Increase Mental Health before the system locks you out."
+];
+
+const emergencyDialoguePoses = [
+    "pose-warning",
+    "pose-serious",
+    "pose-guide"
+];
+
 function buildPostQuizDialogueSet() {
     const mh = Math.max(0, Math.min(100, Number.parseInt(userProfile.mentalHealth, 10) || 0));
 
@@ -2952,8 +3328,28 @@ function buildPostQuizDialogueSet() {
 function getPoseForDialogue(dialogArray, index) {
     if (dialogArray === initialDialogues) return initialDialoguePoses[index] || "pose-neutral";
     if (dialogArray === warningDialogues) return warningDialoguePoses[index] || "pose-neutral";
+    if (dialogArray === emergencyDialogues) return emergencyDialoguePoses[index] || "pose-warning";
     if (dialogArray === postQuizDialogues) return postQuizDialoguePoses[index] || "pose-neutral";
     return "pose-neutral";
+}
+
+function resetYuiEmergencyTracking() {
+    lastYuiEmergencyMh = null;
+    yuiEmergencyShown = false;
+}
+
+function checkYuiEmergencyDialogue(currentMh) {
+    const mh = Math.max(0, Math.min(100, Number.parseInt(currentMh, 10) || 0));
+    const droppedIntoCritical = lastYuiEmergencyMh !== null && lastYuiEmergencyMh >= 10 && mh < 10;
+
+    if (mh >= 10) {
+        yuiEmergencyShown = false;
+    } else if (droppedIntoCritical && !yuiEmergencyShown) {
+        yuiEmergencyShown = true;
+        showYuiDialogue(emergencyDialogues);
+    }
+
+    lastYuiEmergencyMh = mh;
 }
 
 increaseBtn.addEventListener("click", () => {
