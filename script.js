@@ -151,6 +151,11 @@ const GAMEPLAY_SYSTEMS_STORAGE_KEY = 'kitsune_gameplay_systems_v1';
 const SPECIAL_MOVE_MAX = 100;
 const RAID_MAX_HP = 5000;
 const CLEAN_ARCHITECTURE_MS = 10 * 60 * 1000;
+const COMBO_STANDBY_MS = 3000;
+const REWARD_MULTIPLIER_MS = 30000;
+const MH_LOCK_MS = 3 * 60 * 1000;
+const OVERDRIVE_MS = 10000;
+const ROGUE_FILE_INTERVAL_MS = 45000;
 const GRAPHICS_STORAGE_KEY = 'kitsune_graphics_level_v1';
 const GRAPHICS_LEVELS = ["lowest", "low", "medium", "highest"];
 const DEFAULT_GRAPHICS_LEVEL = "lowest";
@@ -228,9 +233,23 @@ let raidState = {
 let guardState = {
     intrusionActive: false,
     expectedCommand: '',
+    threatType: '',
+    threatValue: '',
+    intrusionExpiresAt: 0,
     cleanArchitectureUntil: 0,
     lastIntrusionDate: ''
 };
+let comboStandbyUntil = 0;
+let comboStandbyTimer = null;
+let rewardMultiplierUntil = 0;
+let mentalHealthLockUntil = 0;
+let overdriveUntil = 0;
+let overdriveTimer = null;
+let glitchTimer = null;
+let rogueFileTimer = null;
+let activeRogueFile = null;
+const baseControlLabels = {};
+const glitchActionMap = { joke: 'joke', chaos: 'chaos', fakeAI: 'fakeAI' };
 
 function getStoredGraphicsLevel() {
     try {
@@ -346,7 +365,11 @@ function getProfileSavePayload() {
             raidState,
             guardState,
             specialMoveStocks,
-            specialMoveCharge
+            specialMoveCharge,
+            rewardMultiplierUntil,
+            mentalHealthLockUntil,
+            overdriveUntil,
+            activeRogueFile
         }
     };
 }
@@ -474,9 +497,16 @@ function restoreGameplaySystems(source = {}) {
     guardState = {
         intrusionActive: Boolean(savedGuard.intrusionActive),
         expectedCommand: typeof savedGuard.expectedCommand === 'string' ? savedGuard.expectedCommand : '',
+        threatType: typeof savedGuard.threatType === 'string' ? savedGuard.threatType : '',
+        threatValue: typeof savedGuard.threatValue === 'string' ? savedGuard.threatValue : '',
+        intrusionExpiresAt: normalizeGameplayNumber(savedGuard.intrusionExpiresAt, 0, 0),
         cleanArchitectureUntil: normalizeGameplayNumber(savedGuard.cleanArchitectureUntil, 0, 0),
         lastIntrusionDate: typeof savedGuard.lastIntrusionDate === 'string' ? savedGuard.lastIntrusionDate : ''
     };
+    rewardMultiplierUntil = normalizeGameplayNumber(source.rewardMultiplierUntil, 0, 0);
+    mentalHealthLockUntil = normalizeGameplayNumber(source.mentalHealthLockUntil, 0, 0);
+    overdriveUntil = normalizeGameplayNumber(source.overdriveUntil, 0, 0);
+    activeRogueFile = source.activeRogueFile && typeof source.activeRogueFile === 'object' ? source.activeRogueFile : null;
 
     const savedDaily = source.dailyState || {};
     dailyState = {
@@ -498,7 +528,11 @@ function persistGameplaySystems() {
             raidState,
             guardState,
             specialMoveStocks,
-            specialMoveCharge
+            specialMoveCharge,
+            rewardMultiplierUntil,
+            mentalHealthLockUntil,
+            overdriveUntil,
+            activeRogueFile
         }));
     } catch {
         // Gameplay state is still usable for the current session if storage is blocked.
@@ -586,6 +620,7 @@ function hideUpdateCatalog() {
 
 function closeSystemPanel(panel) {
     hideWithAnimation(panel, 'ui-exit-pop');
+    if (panel === raidPanel) document.body.classList.remove('raid-active');
 }
 
 function getMissionTimerBonusSeconds() {
@@ -596,14 +631,58 @@ function getSkillChargeMultiplier() {
     return inventory.overclockChip ? 1.5 : 1;
 }
 
+function getRewardMultiplier() {
+    let multiplier = Date.now() < rewardMultiplierUntil ? 3 : 1;
+    if (Date.now() < overdriveUntil) multiplier *= 3;
+    return multiplier;
+}
+
+function getMissionDurationMultiplier() {
+    return Date.now() < overdriveUntil ? 2 : 1;
+}
+
+function isMentalHealthLocked() {
+    return Date.now() < mentalHealthLockUntil;
+}
+
+function playSynthCue(type = 'chime') {
+    if (prefersReducedMotion) return;
+    try {
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextCtor) return;
+        const ctx = new AudioContextCtor();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const now = ctx.currentTime;
+        const freq = type === 'hum' ? 90 : type === 'ring' ? 740 : type === 'overdrive' ? 520 : 980;
+        osc.type = type === 'hum' ? 'sawtooth' : 'square';
+        osc.frequency.setValueAtTime(freq, now);
+        if (type === 'overdrive') osc.frequency.exponentialRampToValueAtTime(1320, now + 0.45);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(type === 'hum' ? 0.035 : 0.08, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + (type === 'hum' ? 0.9 : 0.28));
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + (type === 'hum' ? 1 : 0.5));
+    } catch {
+        // Audio is optional and may be blocked until the first user gesture.
+    }
+}
+
 function addCurrency(amount, reason = '') {
     const gained = Math.max(0, Number.parseInt(amount, 10) || 0);
     if (gained <= 0) return;
-    currency += gained;
+    if (activeRogueFile && activeRogueFile.type === 'shardCollector') {
+        if (reason) typeText('Shard Collector.bin froze currency gain. Execute a clean Sword Skill Combo.');
+        return;
+    }
+    const finalGain = Math.ceil(gained * getRewardMultiplier());
+    currency += finalGain;
     renderShop();
     persistGameplaySystems();
     markProfileDirty();
-    if (reason) typeText(`${reason} +${gained} Kitsune Shards.`);
+    if (reason) typeText(`${reason} +${finalGain} Kitsune Shards.`);
 }
 
 function renderDaily() {
@@ -704,6 +783,7 @@ function useSandwich() {
     if (!hasBrain || inventory.sandwich <= 0) return;
     inventory.sandwich--;
     changeMentalHealth(20);
+    clearGlitchState();
     renderShop();
     persistGameplaySystems();
     markProfileDirty();
@@ -720,6 +800,7 @@ function renderRaid() {
         if (btn) btn.disabled = !canRaid || raidState.bossHp <= 0;
     });
     if (raidBurstBtn) raidBurstBtn.disabled = !canRaid || raidState.bossHp <= 0 || specialMoveStocks <= 0;
+    document.body.classList.toggle('raid-active', Boolean(raidPanel && !raidPanel.classList.contains('hidden') && raidState.bossHp > 0));
 }
 
 function showRaidPanel() {
@@ -768,7 +849,7 @@ function runRaidAction(action) {
         return;
     }
     const now = Date.now();
-    if (now - raidState.lastActionAt < 1800) {
+    if (Date.now() >= overdriveUntil && now - raidState.lastActionAt < 1800) {
         setRaidLog('Action cooling down. Wait a moment.');
         return;
     }
@@ -813,18 +894,33 @@ function burstRaidBoss() {
     markProfileDirty();
 }
 
+function createGuardThreat() {
+    if (Math.random() < 0.5) {
+        const port = String(4000 + Math.floor(Math.random() * 900));
+        return { type: 'port', value: port, command: `kill ${port}`, label: `PORT: ${port} [MALWARE ATTACHED]` };
+    }
+    const hex = Math.random().toString(16).slice(2, 8).toUpperCase();
+    return { type: 'hex', value: hex, command: `bypass ${hex}`, label: `HEX_KEY: ${hex} [INVERTED LOGIC]` };
+}
+
 function startSecurityIntrusion(manual = false) {
     if (!requireUsername()) return;
     if (!manual && guardState.intrusionActive) return;
+    const threat = createGuardThreat();
     guardState.intrusionActive = true;
-    guardState.expectedCommand = 'quarantine --target corrupted_cache';
+    guardState.expectedCommand = threat.command;
+    guardState.threatType = threat.type;
+    guardState.threatValue = threat.value;
+    guardState.intrusionExpiresAt = Date.now() + 20000;
     guardState.lastIntrusionDate = getTodayKey();
     document.body.classList.add('intrusion-alert');
+    playSynthCue('hum');
     if (guardStatusText) guardStatusText.textContent = 'System Intrusion Alert';
     if (guardTerminal) {
         guardTerminal.textContent = [
-            'INTRUSION ALERT: corrupted_cache injected inverted logic.',
-            'Run evaluation command:',
+            'INTRUSION ALERT: active rogue signature detected.',
+            threat.label,
+            'Run command before collapse:',
             guardState.expectedCommand
         ].join('\n');
     }
@@ -849,6 +945,10 @@ function getCleanArchitectureActive() {
 }
 
 function submitGuardCommand() {
+    if (guardState.intrusionActive && Date.now() > guardState.intrusionExpiresAt) {
+        failSecurityIntrusion();
+        return;
+    }
     const command = guardCommandInput ? guardCommandInput.value.trim() : '';
     if (!guardState.intrusionActive) {
         startSecurityIntrusion(true);
@@ -860,6 +960,8 @@ function submitGuardCommand() {
     }
     guardState.intrusionActive = false;
     guardState.cleanArchitectureUntil = Date.now() + CLEAN_ARCHITECTURE_MS;
+    clearRogueFile('logicJammer');
+    clearGlitchState();
     renderGuardState();
     if (guardCommandInput) guardCommandInput.value = '';
     if (guardStatusText) guardStatusText.textContent = 'Clean Architecture active';
@@ -867,6 +969,17 @@ function submitGuardCommand() {
     addCurrency(40);
     persistGameplaySystems();
     markProfileDirty();
+}
+
+function failSecurityIntrusion() {
+    guardState.intrusionActive = false;
+    document.body.classList.remove('intrusion-alert');
+    document.body.classList.add('screen-glitch');
+    changeMentalHealth(-15);
+    activateGlitchState('intrusion failure');
+    if (guardTerminal) guardTerminal.textContent = 'QUARANTINE FAILED. System instability increased.';
+    setTimeout(() => document.body.classList.remove('screen-glitch'), 900);
+    persistGameplaySystems();
 }
 
 function maybeTriggerSecurityIntrusion() {
@@ -877,10 +990,109 @@ function maybeTriggerSecurityIntrusion() {
 
 function renderGuardState() {
     document.body.classList.toggle('intrusion-alert', guardState.intrusionActive);
+    if (guardState.intrusionActive && Date.now() > guardState.intrusionExpiresAt) failSecurityIntrusion();
     if (guardStatusText) {
         guardStatusText.textContent = guardState.intrusionActive
             ? 'System Intrusion Alert'
             : (getCleanArchitectureActive() ? 'Clean Architecture active' : 'System stable');
+    }
+}
+
+function getGlitchResolvedAction(action) {
+    if (!document.body.classList.contains('glitch-state')) return action;
+    return glitchActionMap[action] || action;
+}
+
+function activateGlitchState(reason = 'low Mental Health') {
+    if (document.body.classList.contains('glitch-state')) return;
+    document.body.classList.add('glitch-state');
+    typeText(`System Corruption active: ${reason}. Use Sandwich or quarantine to stabilize.`);
+    shuffleGlitchActions();
+    glitchTimer = setInterval(shuffleGlitchActions, 4000);
+}
+
+function clearGlitchState() {
+    document.body.classList.remove('glitch-state');
+    if (glitchTimer) clearInterval(glitchTimer);
+    glitchTimer = null;
+    restoreControlLabels();
+    glitchActionMap.joke = 'joke';
+    glitchActionMap.chaos = 'chaos';
+    glitchActionMap.fakeAI = 'fakeAI';
+}
+
+function updateGlitchState() {
+    if (userProfile.mentalHealth < 35 && hasBrain) activateGlitchState('Mental Health below 35%');
+    if (userProfile.mentalHealth >= 45) clearGlitchState();
+}
+
+function cacheControlLabels() {
+    const controls = [
+        ['joke', document.querySelector('button[onclick="randomJoke()"]')],
+        ['chaos', document.querySelector('button[onclick="chaos()"]')],
+        ['fakeAI', document.querySelector('button[onclick="fakeAI()"]')]
+    ];
+    controls.forEach(([key, btn]) => {
+        if (btn && !baseControlLabels[key]) baseControlLabels[key] = btn.textContent;
+    });
+}
+
+function restoreControlLabels() {
+    const buttons = {
+        joke: document.querySelector('button[onclick="randomJoke()"]'),
+        chaos: document.querySelector('button[onclick="chaos()"]'),
+        fakeAI: document.querySelector('button[onclick="fakeAI()"]')
+    };
+    Object.keys(buttons).forEach((key) => {
+        if (buttons[key] && baseControlLabels[key]) buttons[key].textContent = baseControlLabels[key];
+    });
+}
+
+function shuffleGlitchActions() {
+    cacheControlLabels();
+    const actions = ['joke', 'chaos', 'fakeAI'].sort(() => Math.random() - 0.5);
+    glitchActionMap.joke = actions[0];
+    glitchActionMap.chaos = actions[1];
+    glitchActionMap.fakeAI = actions[2];
+    const buttons = {
+        joke: document.querySelector('button[onclick="randomJoke()"]'),
+        chaos: document.querySelector('button[onclick="chaos()"]'),
+        fakeAI: document.querySelector('button[onclick="fakeAI()"]')
+    };
+    const labels = { joke: '😂 Joke', chaos: '🎲 Chaos', fakeAI: '🤖 Fake AI' };
+    Object.keys(buttons).forEach((key) => {
+        if (buttons[key]) buttons[key].textContent = labels[glitchActionMap[key]];
+    });
+}
+
+function clearRogueFile(type) {
+    if (!activeRogueFile || (type && activeRogueFile.type !== type)) return false;
+    activeRogueFile = null;
+    document.body.classList.remove('rogue-file-active');
+    typeText('Rogue File neutralized.');
+    persistGameplaySystems();
+    return true;
+}
+
+function maybeTriggerRogueFile() {
+    if (!hasUsername() || activeRogueFile) return;
+    if (Math.random() > 0.22) return;
+    const options = [
+        { type: 'memoryDrain', name: 'Memory Drain.exe' },
+        { type: 'logicJammer', name: 'Logic Jammer.sys' },
+        { type: 'shardCollector', name: 'Shard Collector.bin' }
+    ];
+    activeRogueFile = options[Math.floor(Math.random() * options.length)];
+    document.body.classList.add('rogue-file-active');
+    showYuiDialogue([`Yui: Warning. ${activeRogueFile.name} executed in the background.`, 'Yui: Change strategy and neutralize it quickly.']);
+    persistGameplaySystems();
+}
+
+function applyRogueFileTick() {
+    if (!activeRogueFile) return;
+    if (activeRogueFile.type === 'memoryDrain' && userProfile.exp > 0) {
+        userProfile.exp = Math.max(0, userProfile.exp - 2);
+        renderProfile();
     }
 }
 
@@ -943,7 +1155,7 @@ function updateSkillBar() {
     }
     if (skillMeterFill) skillMeterFill.style.width = `${ready && charge === 0 ? SPECIAL_MOVE_MAX : charge}%`;
     if (skillBurstBtn) {
-        skillBurstBtn.disabled = !ready || !hasActiveMission;
+        skillBurstBtn.disabled = !ready;
         skillBurstBtn.title = ready ? `Burst stock ready: ${specialMoveStocks}` : 'Charge with Joke, Chaos, or Fake AI';
     }
     if (skillBar) {
@@ -964,16 +1176,33 @@ function chargeSpecialMove(amount) {
 
     if (specialMoveStocks > previousStocks) {
         if (skillBar) burstFromElement(skillBar, '0,255,204', 28);
+        playSynthCue('ring');
         typeText(`Sword Skill ready x${specialMoveStocks}. Start a mission and press Burst.`);
+        if (specialMoveStocks >= 3) {
+            typeText('Dual Wield Overdrive ready. Double-tap Burst to activate.');
+        }
     }
     persistGameplaySystems();
 }
 
 function burstActiveMission() {
-    if (raidPanel && !raidPanel.classList.contains('hidden')) {
-        burstRaidBoss();
+    const now = Date.now();
+    if (specialMoveStocks >= 3 && now - lastBurstClickAt < 550) {
+        activateOverdrive();
         return;
     }
+    lastBurstClickAt = now;
+    if (specialMoveStocks <= 0) {
+        typeText('Sword Skill is still charging.');
+        updateSkillBar();
+        return;
+    }
+    enterComboStandby();
+}
+
+let lastBurstClickAt = 0;
+
+function fireLegacyBurstMission() {
     if (!activeMissionGame || !activeMissionGame.active || activeMissionGame.ended) {
         typeText('Burst needs an active mission.');
         updateSkillBar();
@@ -994,6 +1223,76 @@ function burstActiveMission() {
     }
     setMissionGameStatus('Sword Skill Burst activated. Difficult stage cleared.');
     endMissionRun(level, true, 'Sword Skill Burst');
+}
+
+function enterComboStandby() {
+    comboStandbyUntil = Date.now() + COMBO_STANDBY_MS;
+    document.body.classList.add('combo-standby');
+    if (comboStandbyTimer) clearTimeout(comboStandbyTimer);
+    comboStandbyTimer = setTimeout(() => {
+        if (Date.now() >= comboStandbyUntil) {
+            document.body.classList.remove('combo-standby');
+            comboStandbyUntil = 0;
+            typeText('Combo Standby expired.');
+        }
+    }, COMBO_STANDBY_MS + 50);
+    typeText('Combo Standby: press Joke, Chaos, or Fake AI within 3 seconds.');
+}
+
+function consumeComboStock() {
+    specialMoveStocks = Math.max(0, specialMoveStocks - 1);
+    comboStandbyUntil = 0;
+    document.body.classList.remove('combo-standby');
+    updateSkillBar();
+    persistGameplaySystems();
+}
+
+function handleSwordCombo(action) {
+    if (Date.now() >= comboStandbyUntil) return false;
+    consumeComboStock();
+    if (action === 'joke') {
+        rewardMultiplierUntil = Date.now() + REWARD_MULTIPLIER_MS;
+        clearRogueFile('shardCollector');
+        typeText('Star Burst Stream active: EXP and Shards x3 for 30 seconds.');
+        playSynthCue('chime');
+    } else if (action === 'chaos') {
+        const damage = Math.ceil(RAID_MAX_HP * 0.25);
+        raidState.bossHp = Math.max(0, raidState.bossHp - damage);
+        renderRaid();
+        typeText(`The Eclipse hit the Floor Boss for ${damage} HP.`);
+        playSynthCue('overdrive');
+    } else if (action === 'fakeAI') {
+        guardState.intrusionActive = false;
+        mentalHealthLockUntil = Date.now() + MH_LOCK_MS;
+        userProfile.mentalHealth = 100;
+        updateMHBar();
+        renderGuardState();
+        typeText('System Overload purged intrusions and locked Mental Health at 100% for 3 minutes.');
+        playSynthCue('ring');
+    }
+    persistGameplaySystems();
+    markProfileDirty();
+    return true;
+}
+
+function activateOverdrive() {
+    if (specialMoveStocks < 3) return;
+    specialMoveStocks -= 3;
+    comboStandbyUntil = 0;
+    document.body.classList.remove('combo-standby');
+    overdriveUntil = Date.now() + OVERDRIVE_MS;
+    document.body.classList.add('dual-wield-overdrive');
+    updateSkillBar();
+    playSynthCue('overdrive');
+    typeText('Dual Wield Overdrive activated for 10 seconds.');
+    if (overdriveTimer) clearTimeout(overdriveTimer);
+    overdriveTimer = setTimeout(() => {
+        document.body.classList.remove('dual-wield-overdrive');
+        overdriveUntil = 0;
+        typeText('Dual Wield Overdrive ended.');
+        persistGameplaySystems();
+    }, OVERDRIVE_MS);
+    persistGameplaySystems();
 }
 
 function createMissionRuntime(level) {
@@ -1087,6 +1386,7 @@ function endMissionRun(level, passed, detailText = '') {
         addExp(reward);
         addCurrency(shards);
         if (level === 2) markDailyProgress('level2');
+        if (level === 1 || level === 2) clearRogueFile('memoryDrain');
         maybeTriggerSecurityIntrusion();
         setMissionGameStatus(`Mission Level ${level} clear. +${reward} EXP, +${shards} Shards${detailText ? ` | ${detailText}` : ''}`);
         typeText(`Mission Level ${level} complete! +${reward} EXP, +${shards} Kitsune Shards`);
@@ -1133,6 +1433,10 @@ function hideMissionSelector() {
 
 function showMissionSelector() {
     if (!requireUsername()) return;
+    if (activeRogueFile && activeRogueFile.type === 'logicJammer') {
+        typeText('Logic Jammer.sys locked Missions. Run Guard and bypass the active threat.');
+        return;
+    }
     updateMissionSelectorAvailability();
     const maxLevel = getMaxUnlockedMissionLevel();
     if (maxLevel <= 0 && !isAdminUser()) {
@@ -1528,7 +1832,7 @@ function runSystemDebugChallenge(runtime, onComplete) {
     gameWrap.appendChild(readout);
     missionGameContent.appendChild(gameWrap);
 
-    const totalSeconds = 35 + getMissionTimerBonusSeconds();
+    const totalSeconds = (35 + getMissionTimerBonusSeconds()) * getMissionDurationMultiplier();
     const requiredFixes = 18;
     const maxLeaks = 6;
     let timeLeft = totalSeconds;
@@ -1620,7 +1924,7 @@ function startMissionLevel1() {
     );
     if (!runtime) return;
     runReflexChallenge(runtime, {
-        durationSec: 30 + getMissionTimerBonusSeconds(),
+        durationSec: (30 + getMissionTimerBonusSeconds()) * getMissionDurationMultiplier(),
         reactionMs: 1500,
         passScore: 15,
         minSpawnMs: 680,
@@ -1645,7 +1949,7 @@ function startMissionLevel2() {
         rounds: 3,
         baseLength: 5,
         roundIncrement: 1,
-        showDurationMs: 5000 + (getMissionTimerBonusSeconds() * 1000),
+        showDurationMs: (5000 + (getMissionTimerBonusSeconds() * 1000)) * getMissionDurationMultiplier(),
         failOnMistake: false,
         hint: 'Repeat the highlighted tiles in exact order. One mistake resets the round.'
     }, (result) => {
@@ -1663,7 +1967,7 @@ function startMissionLevel3() {
     );
     if (!runtime) return;
     runLogicChallenge(runtime, {
-        totalSeconds: 300 + getMissionTimerBonusSeconds(),
+        totalSeconds: (300 + getMissionTimerBonusSeconds()) * getMissionDurationMultiplier(),
         puzzles: [
             {
                 prompt: 'Math Lock: ((12 + 6) x 2) - 5 = ?',
@@ -1696,7 +2000,7 @@ function startMissionLevel4() {
     const state = {
         stage: 1,
         mistakes: 0,
-        totalTimeLeft: 600 + getMissionTimerBonusSeconds()
+        totalTimeLeft: (600 + getMissionTimerBonusSeconds()) * getMissionDurationMultiplier()
     };
 
     const getPrefix = () => `Stage ${state.stage}/3 | Mistakes ${state.mistakes}/2 | Total ${formatMissionTime(state.totalTimeLeft)}`;
@@ -3380,6 +3684,24 @@ renderDaily();
 renderShop();
 renderRaid();
 renderGuardState();
+cacheControlLabels();
+updateGlitchState();
+if (Date.now() < overdriveUntil) {
+    document.body.classList.add('dual-wield-overdrive');
+    overdriveTimer = setTimeout(() => {
+        document.body.classList.remove('dual-wield-overdrive');
+        overdriveUntil = 0;
+        persistGameplaySystems();
+    }, overdriveUntil - Date.now());
+}
+rogueFileTimer = setInterval(() => {
+    maybeTriggerRogueFile();
+    applyRogueFileTick();
+}, ROGUE_FILE_INTERVAL_MS);
+setInterval(() => {
+    applyRogueFileTick();
+    renderGuardState();
+}, 1000);
 
 function animateValue(element, start, end, duration = 700, formatter) {
     if (!element) return;
@@ -3402,8 +3724,9 @@ function animateValue(element, start, end, duration = 700, formatter) {
 function addExp(amount) {
     const oldLevel = userProfile.level;
     const oldExp = userProfile.exp;
+    const finalAmount = Math.ceil(amount * getRewardMultiplier());
 
-    userProfile.exp += amount;
+    userProfile.exp += finalAmount;
 
     let levelUps = 0;
     // handle multiple level-ups in one add
@@ -3444,8 +3767,13 @@ function addExp(amount) {
     updateProfileRankDisplay();
 
     // notify player
-    if (levelUps > 1) typeText(`LEVEL UP x${levelUps}! You are now Level ${newLevel}`);
-    else if (levelUps === 1) typeText(`LEVEL UP! You are now Level ${newLevel}`);
+    if (levelUps > 1) {
+        playSynthCue('chime');
+        typeText(`LEVEL UP x${levelUps}! You are now Level ${newLevel}`);
+    } else if (levelUps === 1) {
+        playSynthCue('chime');
+        typeText(`LEVEL UP! You are now Level ${newLevel}`);
+    }
     markProfileDirty();
 
 }
@@ -3527,6 +3855,12 @@ function updateMHBar() {
 }
 
 function changeMentalHealth(amount) {
+    if (amount < 0 && isMentalHealthLocked()) {
+        userProfile.mentalHealth = 100;
+        updateMHBar();
+        typeText('System Overload locked Mental Health at 100%.');
+        return;
+    }
     if (amount < 0 && getCleanArchitectureActive()) {
         typeText('Clean Architecture blocked Mental Health decay.');
         return;
@@ -3537,6 +3871,7 @@ function changeMentalHealth(amount) {
     if (userProfile.mentalHealth > 100) userProfile.mentalHealth = 100;
 
     updateMHBar();
+    updateGlitchState();
     markProfileDirty();
 
     if (userProfile.mentalHealth === 0) {
@@ -3567,6 +3902,9 @@ function typeText(text) {
 /* ================== Fun Buttons ================== */
 function randomJoke() {
     if (!requireUsername()) return;
+    if (handleSwordCombo('joke')) return;
+    const resolvedAction = getGlitchResolvedAction('joke');
+    if (resolvedAction !== 'joke') return runCoreAction(resolvedAction);
     const jokes = [
         "Why are you smiling? Nothing changed 😏",
         "This app is working harder than you.",
@@ -3579,6 +3917,9 @@ function randomJoke() {
 
 function chaos() {
     if (!requireUsername()) return;
+    if (handleSwordCombo('chaos')) return;
+    const resolvedAction = getGlitchResolvedAction('chaos');
+    if (resolvedAction !== 'chaos') return runCoreAction(resolvedAction);
     const chaos = [
         "System scanning brain... 12% 🧠",
         "Loading common sense... failed ❌",
@@ -3592,6 +3933,9 @@ function chaos() {
 
 function fakeAI() {
     if (!requireUsername()) return;
+    if (handleSwordCombo('fakeAI')) return;
+    const resolvedAction = getGlitchResolvedAction('fakeAI');
+    if (resolvedAction !== 'fakeAI') return runCoreAction(resolvedAction);
     const ai = [
         "I am an AI. Trust me.",
         "The answer is yes. Or no.",
@@ -3600,6 +3944,42 @@ function fakeAI() {
     ];
     typeText(ai[Math.floor(Math.random() * ai.length)]);
     chargeSpecialMove(25);
+}
+
+function runCoreAction(action) {
+    if (action === 'joke') {
+        const jokes = [
+            "Why are you smiling? Nothing changed.",
+            "This app is working harder than you.",
+            "Congratulations. You clicked a button.",
+            "Error 404: Motivation not found."
+        ];
+        typeText(jokes[Math.floor(Math.random() * jokes.length)]);
+        chargeSpecialMove(22);
+    } else if (action === 'chaos') {
+        const lines = [
+            "System scanning brain... 12%",
+            "Loading common sense... failed",
+            "Do not press buttons randomly.",
+            "Chaos level increased by +1"
+        ];
+        typeText(lines[Math.floor(Math.random() * lines.length)]);
+        markDailyProgress('chaos');
+        chargeSpecialMove(28);
+    } else {
+        const lines = [
+            "I am an AI. Trust me.",
+            "The answer is yes. Or no.",
+            "Have you tried rebooting yourself?",
+            "Studying is good. Memes are better."
+        ];
+        typeText(lines[Math.floor(Math.random() * lines.length)]);
+        chargeSpecialMove(25);
+    }
+    if (Date.now() < overdriveUntil) {
+        addExp(9);
+        addCurrency(6);
+    }
 }
 
 /* ================== Add Brain ================== */
@@ -4006,9 +4386,10 @@ if (particleCanvas && particleCtx) {
         }
 
         update() {
+            const speedMultiplier = document.body.classList.contains('glitch-state') ? 3 : 1;
             this.phase += 0.018;
-            this.x += this.speedX + Math.sin(this.phase) * 0.08;
-            this.y -= this.speedY;
+            this.x += (this.speedX + Math.sin(this.phase) * 0.08) * speedMultiplier;
+            this.y -= this.speedY * speedMultiplier;
 
             if (particlePointer.active) {
                 const dx = this.x - particlePointer.x;
