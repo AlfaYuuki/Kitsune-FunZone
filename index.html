@@ -106,6 +106,10 @@
     <button onclick="addBrain()">🧠 Add Brain</button>
     <button id="increaseMHBtn" disabled>💊 Increase Mental Health</button>
     <button id="missions-btn" type="button">🗺️ Missions</button>
+    <button id="daily-btn" type="button">Daily</button>
+    <button id="shop-btn" type="button">Shop</button>
+    <button id="raid-btn" type="button">Raid</button>
+    <button id="guard-btn" type="button">Guard</button>
   </div>
 </div>
 
@@ -162,17 +166,108 @@
   <div id="mission-game-content" class="mission-game-content"></div>
 </div>
 
+<!-- Daily Checklist -->
+<div id="daily-panel" class="system-panel daily-panel hidden">
+  <div class="system-panel-header">
+    <div>
+      <div class="system-panel-title">Daily Checklist</div>
+      <div id="daily-date-text" class="system-panel-subtitle">Daily rotation</div>
+    </div>
+    <button id="daily-close-btn" type="button">Close</button>
+  </div>
+  <div id="daily-list" class="system-list"></div>
+  <div id="daily-reward-text" class="system-panel-note"></div>
+  <button id="daily-claim-btn" type="button">Claim Daily Reward</button>
+</div>
+
+<!-- Inventory & Shop -->
+<div id="shop-panel" class="system-panel shop-panel hidden">
+  <div class="system-panel-header">
+    <div>
+      <div class="system-panel-title">Inventory & Shop</div>
+      <div id="currency-text" class="system-panel-subtitle">Kitsune Shards: 0</div>
+    </div>
+    <button id="shop-close-btn" type="button">Close</button>
+  </div>
+  <div id="inventory-list" class="system-list"></div>
+  <div class="shop-grid">
+    <button class="shop-item-btn" data-shop-item="memoryLeakBuffer" type="button">
+      <strong>Memory Leak Buffer</strong>
+      <span>120 Shards | Passive timer +5s</span>
+    </button>
+    <button class="shop-item-btn" data-shop-item="sandwich" type="button">
+      <strong>Yui's Homemade Sandwich</strong>
+      <span>60 Shards | Consumable +20% MH</span>
+    </button>
+    <button class="shop-item-btn" data-shop-item="overclockChip" type="button">
+      <strong>Overclock Chip</strong>
+      <span>180 Shards | Passive skill charge x1.5</span>
+    </button>
+  </div>
+  <button id="use-sandwich-btn" type="button">Use Sandwich</button>
+</div>
+
+<!-- Boss Raid -->
+<div id="raid-panel" class="system-panel raid-panel hidden">
+  <div class="system-panel-header">
+    <div>
+      <div class="system-panel-title">Aincrad Floor Boss</div>
+      <div id="raid-status-text" class="system-panel-subtitle">Floor Boss HP: 5000/5000</div>
+    </div>
+    <button id="raid-close-btn" type="button">Close</button>
+  </div>
+  <div class="raid-hp-shell"><div id="raid-hp-fill" class="raid-hp-fill"></div></div>
+  <div id="raid-log" class="raid-log">Choose an action to begin the raid.</div>
+  <div class="raid-actions">
+    <button id="raid-attack-btn" type="button">Attack</button>
+    <button id="raid-defend-btn" type="button">Defend</button>
+    <button id="raid-analyze-btn" type="button">Analyze</button>
+    <button id="raid-burst-btn" type="button">Burst</button>
+  </div>
+</div>
+
+<!-- Cyber Security Guard -->
+<div id="guard-panel" class="system-panel guard-panel hidden">
+  <div class="system-panel-header">
+    <div>
+      <div class="system-panel-title">Cyber Security Guard</div>
+      <div id="guard-status-text" class="system-panel-subtitle">System stable</div>
+    </div>
+    <button id="guard-close-btn" type="button">Close</button>
+  </div>
+  <div id="guard-terminal" class="guard-terminal"></div>
+  <div class="guard-input-row">
+    <input id="guard-command-input" type="text" placeholder="Enter quarantine command">
+    <button id="guard-submit-btn" type="button">Run</button>
+  </div>
+</div>
+
 <!-- Update Catalog -->
 <div id="update-catalog-panel" class="update-catalog-panel hidden" aria-label="Update Catalog">
   <div class="update-catalog-header">
     <div>
       <div class="update-catalog-title">Update Catalog</div>
-      <div class="update-catalog-subtitle">Kitsune FunZone v1.0 - v2.7</div>
+      <div class="update-catalog-subtitle">Kitsune FunZone v1.0 - v3.0</div>
     </div>
     <button id="update-catalog-close-btn" class="update-catalog-close-btn" type="button" aria-label="Close update catalog">Close</button>
   </div>
   <div class="update-catalog-list">
     <article class="update-entry latest">
+      <span class="update-version">v3.0</span>
+      <h3>Major Update Coming Soon</h3>
+      <p>Reserved the next major release lane for the upcoming large-scale Kitsune FunZone expansion.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.9</span>
+      <h3>Raid And Security Guard</h3>
+      <p>Added the Aincrad Floor Boss raid and Cyber Security Guard intrusion minigame.</p>
+    </article>
+    <article class="update-entry">
+      <span class="update-version">v2.8</span>
+      <h3>Daily And Shop Systems</h3>
+      <p>Added Daily Checklist rewards, Kitsune Shards, inventory items, and the item shop.</p>
+    </article>
+    <article class="update-entry">
       <span class="update-version">v2.7</span>
       <h3>Release Candidate</h3>
       <p>Added this Update Catalog and reduced Mental Health bar flicker during active play.</p>

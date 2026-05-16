@@ -27,6 +27,37 @@ const skillBurstBtn = document.getElementById("skill-burst-btn");
 const updateCatalogBtn = document.getElementById("update-catalog-btn");
 const updateCatalogPanel = document.getElementById("update-catalog-panel");
 const updateCatalogCloseBtn = document.getElementById("update-catalog-close-btn");
+const dailyBtn = document.getElementById("daily-btn");
+const dailyPanel = document.getElementById("daily-panel");
+const dailyCloseBtn = document.getElementById("daily-close-btn");
+const dailyDateText = document.getElementById("daily-date-text");
+const dailyList = document.getElementById("daily-list");
+const dailyRewardText = document.getElementById("daily-reward-text");
+const dailyClaimBtn = document.getElementById("daily-claim-btn");
+const shopBtn = document.getElementById("shop-btn");
+const shopPanel = document.getElementById("shop-panel");
+const shopCloseBtn = document.getElementById("shop-close-btn");
+const currencyText = document.getElementById("currency-text");
+const inventoryList = document.getElementById("inventory-list");
+const shopItemButtons = Array.from(document.querySelectorAll(".shop-item-btn"));
+const useSandwichBtn = document.getElementById("use-sandwich-btn");
+const raidBtn = document.getElementById("raid-btn");
+const raidPanel = document.getElementById("raid-panel");
+const raidCloseBtn = document.getElementById("raid-close-btn");
+const raidStatusText = document.getElementById("raid-status-text");
+const raidHpFill = document.getElementById("raid-hp-fill");
+const raidLog = document.getElementById("raid-log");
+const raidAttackBtn = document.getElementById("raid-attack-btn");
+const raidDefendBtn = document.getElementById("raid-defend-btn");
+const raidAnalyzeBtn = document.getElementById("raid-analyze-btn");
+const raidBurstBtn = document.getElementById("raid-burst-btn");
+const guardBtn = document.getElementById("guard-btn");
+const guardPanel = document.getElementById("guard-panel");
+const guardCloseBtn = document.getElementById("guard-close-btn");
+const guardStatusText = document.getElementById("guard-status-text");
+const guardTerminal = document.getElementById("guard-terminal");
+const guardCommandInput = document.getElementById("guard-command-input");
+const guardSubmitBtn = document.getElementById("guard-submit-btn");
 
 /* ================== USER PROFILE (Upgrade 1) ================== */
 const userProfile = {
@@ -116,7 +147,10 @@ const ADMIN_MIN_MAX_ATTEMPTS = 1;
 const ADMIN_BASE_LOCK_MS = 30000;
 const ADMIN_SECURITY_STORAGE_KEY = 'kitsune_admin_security_v1';
 const PROFILE_SAVE_STORAGE_KEY = 'kitsune_profile_save_v1';
+const GAMEPLAY_SYSTEMS_STORAGE_KEY = 'kitsune_gameplay_systems_v1';
 const SPECIAL_MOVE_MAX = 100;
+const RAID_MAX_HP = 5000;
+const CLEAN_ARCHITECTURE_MS = 10 * 60 * 1000;
 const GRAPHICS_STORAGE_KEY = 'kitsune_graphics_level_v1';
 const GRAPHICS_LEVELS = ["lowest", "low", "medium", "highest"];
 const DEFAULT_GRAPHICS_LEVEL = "lowest";
@@ -172,6 +206,31 @@ let hasUnsavedProfileChanges = false;
 let specialMoveCharge = 0;
 let specialMoveStocks = 0;
 let lastRenderedMentalHealth = null;
+let currency = 0;
+let inventory = {
+    memoryLeakBuffer: false,
+    sandwich: 0,
+    overclockChip: false
+};
+let dailyState = {
+    date: '',
+    chaosClicks: 0,
+    completedLevel2: false,
+    maintainedMH: false,
+    claimed: false
+};
+let raidState = {
+    bossHp: RAID_MAX_HP,
+    bossCharge: 0,
+    analyzed: false,
+    lastActionAt: 0
+};
+let guardState = {
+    intrusionActive: false,
+    expectedCommand: '',
+    cleanArchitectureUntil: 0,
+    lastIntrusionDate: ''
+};
 
 function getStoredGraphicsLevel() {
     try {
@@ -280,7 +339,14 @@ function getProfileSavePayload() {
             hasBrain,
             adminCustomRank,
             isAdminVerified: isAdminUser(),
-            isAdminPanelHiddenByUser
+            isAdminPanelHiddenByUser,
+            currency,
+            inventory,
+            dailyState,
+            raidState,
+            guardState,
+            specialMoveStocks,
+            specialMoveCharge
         }
     };
 }
@@ -309,6 +375,7 @@ function eraseSavedProfile() {
 
     try {
         localStorage.removeItem(PROFILE_SAVE_STORAGE_KEY);
+        localStorage.removeItem(GAMEPLAY_SYSTEMS_STORAGE_KEY);
         setProfileDirty(hasUsername());
         typeText('Saved user data erased from localStorage.');
     } catch {
@@ -341,6 +408,7 @@ function loadSavedProfile() {
         hasBrain = Boolean(saved.state && saved.state.hasBrain);
         adminCustomRank = ADMIN_RANKS.includes(saved.state && saved.state.adminCustomRank) ? saved.state.adminCustomRank : '';
         isAdminPanelHiddenByUser = Boolean(saved.state && saved.state.isAdminPanelHiddenByUser);
+        if (saved.state) restoreGameplaySystems(saved.state);
         applyAdminSecurityStateFor(savedUsername);
         isAdminVerified = Boolean(saved.state && saved.state.isAdminVerified && isAdminName(savedUsername) && !isAdminAccountLocked());
 
@@ -357,6 +425,104 @@ function loadSavedProfile() {
         return true;
     } catch {
         return false;
+    }
+}
+
+function getTodayKey() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getDefaultDailyState(date = getTodayKey()) {
+    return {
+        date,
+        chaosClicks: 0,
+        completedLevel2: false,
+        maintainedMH: userProfile.mentalHealth >= 50,
+        claimed: false
+    };
+}
+
+function normalizeGameplayNumber(value, fallback = 0, min = 0, max = Number.MAX_SAFE_INTEGER) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(min, Math.min(max, parsed));
+}
+
+function restoreGameplaySystems(source = {}) {
+    currency = normalizeGameplayNumber(source.currency, currency, 0);
+    inventory = {
+        memoryLeakBuffer: Boolean(source.inventory && source.inventory.memoryLeakBuffer),
+        sandwich: normalizeGameplayNumber(source.inventory && source.inventory.sandwich, inventory.sandwich, 0, 99),
+        overclockChip: Boolean(source.inventory && source.inventory.overclockChip)
+    };
+    specialMoveStocks = normalizeGameplayNumber(source.specialMoveStocks, specialMoveStocks, 0, 99);
+    specialMoveCharge = normalizeGameplayNumber(source.specialMoveCharge, specialMoveCharge, 0, SPECIAL_MOVE_MAX - 1);
+
+    const savedRaid = source.raidState || {};
+    raidState = {
+        bossHp: normalizeGameplayNumber(savedRaid.bossHp, raidState.bossHp, 0, RAID_MAX_HP),
+        bossCharge: normalizeGameplayNumber(savedRaid.bossCharge, 0, 0, 3),
+        analyzed: Boolean(savedRaid.analyzed),
+        lastActionAt: 0
+    };
+
+    const savedGuard = source.guardState || {};
+    guardState = {
+        intrusionActive: Boolean(savedGuard.intrusionActive),
+        expectedCommand: typeof savedGuard.expectedCommand === 'string' ? savedGuard.expectedCommand : '',
+        cleanArchitectureUntil: normalizeGameplayNumber(savedGuard.cleanArchitectureUntil, 0, 0),
+        lastIntrusionDate: typeof savedGuard.lastIntrusionDate === 'string' ? savedGuard.lastIntrusionDate : ''
+    };
+
+    const savedDaily = source.dailyState || {};
+    dailyState = {
+        date: typeof savedDaily.date === 'string' ? savedDaily.date : '',
+        chaosClicks: normalizeGameplayNumber(savedDaily.chaosClicks, 0, 0, 3),
+        completedLevel2: Boolean(savedDaily.completedLevel2),
+        maintainedMH: Boolean(savedDaily.maintainedMH),
+        claimed: Boolean(savedDaily.claimed)
+    };
+    ensureDailyState();
+}
+
+function persistGameplaySystems() {
+    try {
+        localStorage.setItem(GAMEPLAY_SYSTEMS_STORAGE_KEY, JSON.stringify({
+            currency,
+            inventory,
+            dailyState,
+            raidState,
+            guardState,
+            specialMoveStocks,
+            specialMoveCharge
+        }));
+    } catch {
+        // Gameplay state is still usable for the current session if storage is blocked.
+    }
+}
+
+function loadGameplaySystems() {
+    try {
+        const raw = localStorage.getItem(GAMEPLAY_SYSTEMS_STORAGE_KEY);
+        if (!raw) {
+            ensureDailyState();
+            return;
+        }
+        restoreGameplaySystems(JSON.parse(raw));
+    } catch {
+        ensureDailyState();
+    }
+}
+
+function ensureDailyState() {
+    const today = getTodayKey();
+    if (dailyState.date !== today) {
+        dailyState = getDefaultDailyState(today);
+        persistGameplaySystems();
     }
 }
 
@@ -416,6 +582,306 @@ function showUpdateCatalog() {
 
 function hideUpdateCatalog() {
     hideWithAnimation(updateCatalogPanel, 'ui-exit-pop');
+}
+
+function closeSystemPanel(panel) {
+    hideWithAnimation(panel, 'ui-exit-pop');
+}
+
+function getMissionTimerBonusSeconds() {
+    return inventory.memoryLeakBuffer ? 5 : 0;
+}
+
+function getSkillChargeMultiplier() {
+    return inventory.overclockChip ? 1.5 : 1;
+}
+
+function addCurrency(amount, reason = '') {
+    const gained = Math.max(0, Number.parseInt(amount, 10) || 0);
+    if (gained <= 0) return;
+    currency += gained;
+    renderShop();
+    persistGameplaySystems();
+    markProfileDirty();
+    if (reason) typeText(`${reason} +${gained} Kitsune Shards.`);
+}
+
+function renderDaily() {
+    ensureDailyState();
+    if (dailyDateText) dailyDateText.textContent = `Rotation: ${dailyState.date}`;
+    if (dailyList) {
+        const rows = [
+            { label: 'Click Chaos 3 times', value: `${dailyState.chaosClicks}/3`, done: dailyState.chaosClicks >= 3 },
+            { label: 'Complete a Level 2 Mission', value: dailyState.completedLevel2 ? 'Done' : 'Pending', done: dailyState.completedLevel2 },
+            { label: 'Keep Mental Health above 50%', value: dailyState.maintainedMH ? 'Stable' : 'Need 50%+', done: dailyState.maintainedMH }
+        ];
+        dailyList.innerHTML = rows.map((row) => (
+            `<div class="system-row${row.done ? ' done' : ''}"><span>${row.label}</span><strong>${row.value}</strong></div>`
+        )).join('');
+    }
+    const complete = dailyState.chaosClicks >= 3 && dailyState.completedLevel2 && dailyState.maintainedMH;
+    if (dailyRewardText) {
+        dailyRewardText.textContent = dailyState.claimed
+            ? 'Daily reward claimed. Come back after the next calendar day.'
+            : 'Reward: +300 EXP and +1 Sword Skill Stock.';
+    }
+    if (dailyClaimBtn) dailyClaimBtn.disabled = !complete || dailyState.claimed;
+}
+
+function showDailyPanel() {
+    if (!requireUsername()) return;
+    renderDaily();
+    showWithAnimation(dailyPanel, 'ui-enter-pop');
+}
+
+function markDailyProgress(type) {
+    ensureDailyState();
+    if (type === 'chaos') dailyState.chaosClicks = Math.min(3, dailyState.chaosClicks + 1);
+    if (type === 'level2') dailyState.completedLevel2 = true;
+    if (type === 'mh50' && userProfile.mentalHealth >= 50) dailyState.maintainedMH = true;
+    renderDaily();
+    persistGameplaySystems();
+}
+
+function claimDailyReward() {
+    ensureDailyState();
+    const complete = dailyState.chaosClicks >= 3 && dailyState.completedLevel2 && dailyState.maintainedMH;
+    if (!complete || dailyState.claimed) return;
+    dailyState.claimed = true;
+    addExp(300);
+    specialMoveStocks++;
+    updateSkillBar();
+    renderDaily();
+    persistGameplaySystems();
+    markProfileDirty();
+    typeText('Daily Checklist complete! +300 EXP and +1 Sword Skill Stock.');
+}
+
+function renderShop() {
+    if (currencyText) currencyText.textContent = `Kitsune Shards: ${currency}`;
+    if (inventoryList) {
+        inventoryList.innerHTML = [
+            `<div class="system-row${inventory.memoryLeakBuffer ? ' done' : ''}"><span>Memory Leak Buffer</span><strong>${inventory.memoryLeakBuffer ? 'Owned' : 'Not owned'}</strong></div>`,
+            `<div class="system-row"><span>Yui's Homemade Sandwich</span><strong>x${inventory.sandwich}</strong></div>`,
+            `<div class="system-row${inventory.overclockChip ? ' done' : ''}"><span>Overclock Chip</span><strong>${inventory.overclockChip ? 'Owned' : 'Not owned'}</strong></div>`
+        ].join('');
+    }
+    if (useSandwichBtn) useSandwichBtn.disabled = inventory.sandwich <= 0 || !hasBrain;
+}
+
+function showShopPanel() {
+    if (!requireUsername()) return;
+    renderShop();
+    showWithAnimation(shopPanel, 'ui-enter-pop');
+}
+
+function buyShopItem(itemId) {
+    const shopItems = {
+        memoryLeakBuffer: { cost: 120, passive: true },
+        sandwich: { cost: 60 },
+        overclockChip: { cost: 180, passive: true }
+    };
+    const item = shopItems[itemId];
+    if (!item) return;
+    if (item.passive && inventory[itemId]) {
+        typeText('Item already owned.');
+        return;
+    }
+    if (currency < item.cost) {
+        typeText('Not enough Kitsune Shards.');
+        return;
+    }
+    currency -= item.cost;
+    if (itemId === 'sandwich') inventory.sandwich++;
+    else inventory[itemId] = true;
+    renderShop();
+    persistGameplaySystems();
+    markProfileDirty();
+    typeText('Shop purchase complete.');
+}
+
+function useSandwich() {
+    if (!hasBrain || inventory.sandwich <= 0) return;
+    inventory.sandwich--;
+    changeMentalHealth(20);
+    renderShop();
+    persistGameplaySystems();
+    markProfileDirty();
+    typeText("Yui's Homemade Sandwich restored +20% Mental Health.");
+}
+
+function renderRaid() {
+    raidState.bossHp = Math.max(0, Math.min(RAID_MAX_HP, raidState.bossHp));
+    const hpPct = (raidState.bossHp / RAID_MAX_HP) * 100;
+    if (raidHpFill) raidHpFill.style.width = `${hpPct}%`;
+    if (raidStatusText) raidStatusText.textContent = `Floor Boss HP: ${raidState.bossHp}/${RAID_MAX_HP} | Charge ${raidState.bossCharge}/3`;
+    const canRaid = isAdminUser() || userProfile.level >= 10;
+    [raidAttackBtn, raidDefendBtn, raidAnalyzeBtn, raidBurstBtn].forEach((btn) => {
+        if (btn) btn.disabled = !canRaid || raidState.bossHp <= 0;
+    });
+    if (raidBurstBtn) raidBurstBtn.disabled = !canRaid || raidState.bossHp <= 0 || specialMoveStocks <= 0;
+}
+
+function showRaidPanel() {
+    if (!requireUsername()) return;
+    if (!isAdminUser() && userProfile.level < 10) {
+        typeText('Aincrad Floor Boss unlocks at Level 10 or verified Admin access.');
+        return;
+    }
+    renderRaid();
+    showWithAnimation(raidPanel, 'ui-enter-pop');
+}
+
+function setRaidLog(text) {
+    if (raidLog) raidLog.textContent = text;
+}
+
+function finishRaidIfCleared() {
+    if (raidState.bossHp > 0) return false;
+    raidState.bossHp = 0;
+    addExp(1000);
+    addCurrency(300);
+    setRaidLog('Floor Boss defeated. +1000 EXP and +300 Kitsune Shards awarded.');
+    renderRaid();
+    persistGameplaySystems();
+    markProfileDirty();
+    return true;
+}
+
+function handleBossCounter(playerDefended = false) {
+    if (playerDefended) {
+        raidState.bossCharge = Math.min(3, raidState.bossCharge + 1);
+        return 'Boss studies your guard and charges its ultimate.';
+    }
+    raidState.bossCharge++;
+    if (raidState.bossCharge >= 3) {
+        raidState.bossCharge = 0;
+        changeMentalHealth(-15);
+        return 'Boss ultimate released. Mental Health -15%.';
+    }
+    return 'Boss pressure rises.';
+}
+
+function runRaidAction(action) {
+    if (raidState.bossHp <= 0) {
+        setRaidLog('The boss is already defeated.');
+        return;
+    }
+    const now = Date.now();
+    if (now - raidState.lastActionAt < 1800) {
+        setRaidLog('Action cooling down. Wait a moment.');
+        return;
+    }
+    raidState.lastActionAt = now;
+
+    if (action === 'attack') {
+        const damage = raidState.analyzed ? 380 : 260;
+        raidState.bossHp = Math.max(0, raidState.bossHp - damage);
+        raidState.analyzed = false;
+        changeMentalHealth(-5);
+        setRaidLog(`Attack landed for ${damage} damage. Stress cost: -5% Mental Health. ${handleBossCounter(false)}`);
+    } else if (action === 'defend') {
+        changeMentalHealth(8);
+        setRaidLog(`You defended and recovered +8% Mental Health. ${handleBossCounter(true)}`);
+    } else if (action === 'analyze') {
+        raidState.analyzed = true;
+        setRaidLog(`Weak point traced. Next attack deals bonus damage. ${handleBossCounter(false)}`);
+    }
+
+    finishRaidIfCleared();
+    renderRaid();
+    persistGameplaySystems();
+    markProfileDirty();
+}
+
+function burstRaidBoss() {
+    if (raidState.bossHp <= 0) return;
+    if (specialMoveStocks <= 0) {
+        typeText('Sword Skill is still charging.');
+        renderRaid();
+        return;
+    }
+    specialMoveStocks = Math.max(0, specialMoveStocks - 1);
+    const damage = Math.ceil(RAID_MAX_HP * 0.15);
+    raidState.bossHp = Math.max(0, raidState.bossHp - damage);
+    updateSkillBar();
+    if (typeof particleBurst === 'function') particleBurst(window.innerWidth / 2, window.innerHeight * 0.45, '255,70,110', 90);
+    setRaidLog(`Sword Skill Burst carved off ${damage} boss HP.`);
+    finishRaidIfCleared();
+    renderRaid();
+    persistGameplaySystems();
+    markProfileDirty();
+}
+
+function startSecurityIntrusion(manual = false) {
+    if (!requireUsername()) return;
+    if (!manual && guardState.intrusionActive) return;
+    guardState.intrusionActive = true;
+    guardState.expectedCommand = 'quarantine --target corrupted_cache';
+    guardState.lastIntrusionDate = getTodayKey();
+    document.body.classList.add('intrusion-alert');
+    if (guardStatusText) guardStatusText.textContent = 'System Intrusion Alert';
+    if (guardTerminal) {
+        guardTerminal.textContent = [
+            'INTRUSION ALERT: corrupted_cache injected inverted logic.',
+            'Run evaluation command:',
+            guardState.expectedCommand
+        ].join('\n');
+    }
+    showWithAnimation(guardPanel, 'ui-enter-pop');
+    if (guardCommandInput) guardCommandInput.focus();
+    persistGameplaySystems();
+}
+
+function showGuardPanel() {
+    if (!requireUsername()) return;
+    if (!guardState.intrusionActive) {
+        if (guardStatusText) guardStatusText.textContent = getCleanArchitectureActive() ? 'Clean Architecture active' : 'System stable';
+        if (guardTerminal) guardTerminal.textContent = getCleanArchitectureActive()
+            ? 'Clean Architecture is active. Mental Health decay is blocked for this window.'
+            : 'No active intrusion. Manual scan can trigger a security drill.';
+    }
+    showWithAnimation(guardPanel, 'ui-enter-pop');
+}
+
+function getCleanArchitectureActive() {
+    return Date.now() < guardState.cleanArchitectureUntil;
+}
+
+function submitGuardCommand() {
+    const command = guardCommandInput ? guardCommandInput.value.trim() : '';
+    if (!guardState.intrusionActive) {
+        startSecurityIntrusion(true);
+        return;
+    }
+    if (command !== guardState.expectedCommand) {
+        if (guardTerminal) guardTerminal.textContent += '\nEVALUATION FAILED. Command mismatch.';
+        return;
+    }
+    guardState.intrusionActive = false;
+    guardState.cleanArchitectureUntil = Date.now() + CLEAN_ARCHITECTURE_MS;
+    renderGuardState();
+    if (guardCommandInput) guardCommandInput.value = '';
+    if (guardStatusText) guardStatusText.textContent = 'Clean Architecture active';
+    if (guardTerminal) guardTerminal.textContent = 'Quarantine complete. Clean Architecture active for 10 minutes.';
+    addCurrency(40);
+    persistGameplaySystems();
+    markProfileDirty();
+}
+
+function maybeTriggerSecurityIntrusion() {
+    if (!hasUsername() || guardState.intrusionActive || getCleanArchitectureActive()) return;
+    if (guardState.lastIntrusionDate === getTodayKey()) return;
+    if (Math.random() < 0.18) startSecurityIntrusion(false);
+}
+
+function renderGuardState() {
+    document.body.classList.toggle('intrusion-alert', guardState.intrusionActive);
+    if (guardStatusText) {
+        guardStatusText.textContent = guardState.intrusionActive
+            ? 'System Intrusion Alert'
+            : (getCleanArchitectureActive() ? 'Clean Architecture active' : 'System stable');
+    }
 }
 
 function hasUsername() {
@@ -489,7 +955,7 @@ function updateSkillBar() {
 function chargeSpecialMove(amount) {
     if (!hasUsername()) return;
     const previousStocks = specialMoveStocks;
-    specialMoveCharge += amount;
+    specialMoveCharge += Math.ceil(amount * getSkillChargeMultiplier());
     while (specialMoveCharge >= SPECIAL_MOVE_MAX) {
         specialMoveCharge -= SPECIAL_MOVE_MAX;
         specialMoveStocks++;
@@ -500,9 +966,14 @@ function chargeSpecialMove(amount) {
         if (skillBar) burstFromElement(skillBar, '0,255,204', 28);
         typeText(`Sword Skill ready x${specialMoveStocks}. Start a mission and press Burst.`);
     }
+    persistGameplaySystems();
 }
 
 function burstActiveMission() {
+    if (raidPanel && !raidPanel.classList.contains('hidden')) {
+        burstRaidBoss();
+        return;
+    }
     if (!activeMissionGame || !activeMissionGame.active || activeMissionGame.ended) {
         typeText('Burst needs an active mission.');
         updateSkillBar();
@@ -517,6 +988,7 @@ function burstActiveMission() {
     const level = activeMissionGame.level;
     specialMoveStocks = Math.max(0, specialMoveStocks - 1);
     updateSkillBar();
+    persistGameplaySystems();
     if (typeof particleBurst === 'function') {
         particleBurst(window.innerWidth / 2, window.innerHeight * 0.72, '0,255,204', 84);
     }
@@ -611,9 +1083,13 @@ function endMissionRun(level, passed, detailText = '') {
 
     const reward = MISSION_EXP_REWARDS[level] || 0;
     if (passed) {
+        const shards = Math.max(10, Math.ceil(reward * 0.4));
         addExp(reward);
-        setMissionGameStatus(`Mission Level ${level} clear. +${reward} EXP${detailText ? ` | ${detailText}` : ''}`);
-        typeText(`Mission Level ${level} complete! +${reward} EXP`);
+        addCurrency(shards);
+        if (level === 2) markDailyProgress('level2');
+        maybeTriggerSecurityIntrusion();
+        setMissionGameStatus(`Mission Level ${level} clear. +${reward} EXP, +${shards} Shards${detailText ? ` | ${detailText}` : ''}`);
+        typeText(`Mission Level ${level} complete! +${reward} EXP, +${shards} Kitsune Shards`);
     } else {
         const failNote = detailText ? ` ${detailText}` : '';
         setMissionGameStatus(`Mission Level ${level} failed.${failNote}`);
@@ -1052,7 +1528,7 @@ function runSystemDebugChallenge(runtime, onComplete) {
     gameWrap.appendChild(readout);
     missionGameContent.appendChild(gameWrap);
 
-    const totalSeconds = 35;
+    const totalSeconds = 35 + getMissionTimerBonusSeconds();
     const requiredFixes = 18;
     const maxLeaks = 6;
     let timeLeft = totalSeconds;
@@ -1144,7 +1620,7 @@ function startMissionLevel1() {
     );
     if (!runtime) return;
     runReflexChallenge(runtime, {
-        durationSec: 30,
+        durationSec: 30 + getMissionTimerBonusSeconds(),
         reactionMs: 1500,
         passScore: 15,
         minSpawnMs: 680,
@@ -1169,7 +1645,7 @@ function startMissionLevel2() {
         rounds: 3,
         baseLength: 5,
         roundIncrement: 1,
-        showDurationMs: 5000,
+        showDurationMs: 5000 + (getMissionTimerBonusSeconds() * 1000),
         failOnMistake: false,
         hint: 'Repeat the highlighted tiles in exact order. One mistake resets the round.'
     }, (result) => {
@@ -1187,7 +1663,7 @@ function startMissionLevel3() {
     );
     if (!runtime) return;
     runLogicChallenge(runtime, {
-        totalSeconds: 300,
+        totalSeconds: 300 + getMissionTimerBonusSeconds(),
         puzzles: [
             {
                 prompt: 'Math Lock: ((12 + 6) x 2) - 5 = ?',
@@ -1220,7 +1696,7 @@ function startMissionLevel4() {
     const state = {
         stage: 1,
         mistakes: 0,
-        totalTimeLeft: 600
+        totalTimeLeft: 600 + getMissionTimerBonusSeconds()
     };
 
     const getPrefix = () => `Stage ${state.stage}/3 | Mistakes ${state.mistakes}/2 | Total ${formatMissionTime(state.totalTimeLeft)}`;
@@ -2620,6 +3096,7 @@ function applyAdminChanges() {
     updateRank();
     renderProfile();
     updateMHBar();
+    markDailyProgress('mh50');
     markProfileDirty();
 
     if (previousAdminName !== normalizeAdminName(userProfile.username)) {
@@ -2814,6 +3291,23 @@ if (profileSaveBtn) profileSaveBtn.addEventListener('click', saveProfile);
 if (eraseSaveBtn) eraseSaveBtn.addEventListener('click', eraseSavedProfile);
 if (updateCatalogBtn) updateCatalogBtn.addEventListener('click', showUpdateCatalog);
 if (updateCatalogCloseBtn) updateCatalogCloseBtn.addEventListener('click', hideUpdateCatalog);
+if (dailyBtn) dailyBtn.addEventListener('click', showDailyPanel);
+if (dailyCloseBtn) dailyCloseBtn.addEventListener('click', () => closeSystemPanel(dailyPanel));
+if (dailyClaimBtn) dailyClaimBtn.addEventListener('click', claimDailyReward);
+if (shopBtn) shopBtn.addEventListener('click', showShopPanel);
+if (shopCloseBtn) shopCloseBtn.addEventListener('click', () => closeSystemPanel(shopPanel));
+if (useSandwichBtn) useSandwichBtn.addEventListener('click', useSandwich);
+shopItemButtons.forEach((btn) => btn.addEventListener('click', () => buyShopItem(btn.dataset.shopItem)));
+if (raidBtn) raidBtn.addEventListener('click', showRaidPanel);
+if (raidCloseBtn) raidCloseBtn.addEventListener('click', () => closeSystemPanel(raidPanel));
+if (raidAttackBtn) raidAttackBtn.addEventListener('click', () => runRaidAction('attack'));
+if (raidDefendBtn) raidDefendBtn.addEventListener('click', () => runRaidAction('defend'));
+if (raidAnalyzeBtn) raidAnalyzeBtn.addEventListener('click', () => runRaidAction('analyze'));
+if (raidBurstBtn) raidBurstBtn.addEventListener('click', burstRaidBoss);
+if (guardBtn) guardBtn.addEventListener('click', showGuardPanel);
+if (guardCloseBtn) guardCloseBtn.addEventListener('click', () => closeSystemPanel(guardPanel));
+if (guardSubmitBtn) guardSubmitBtn.addEventListener('click', submitGuardCommand);
+if (guardCommandInput) guardCommandInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') submitGuardCommand(); });
 if (missionsBtn) missionsBtn.addEventListener('click', showMissionSelector);
 if (skillBurstBtn) skillBurstBtn.addEventListener('click', burstActiveMission);
 if (missionCloseBtn) missionCloseBtn.addEventListener('click', hideMissionSelector);
@@ -2848,6 +3342,11 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && updateCatalogPanel && !updateCatalogPanel.classList.contains('hidden')) {
         hideUpdateCatalog();
     }
+    if (event.key === 'Escape') {
+        [dailyPanel, shopPanel, raidPanel, guardPanel].forEach((panel) => {
+            if (panel && !panel.classList.contains('hidden')) closeSystemPanel(panel);
+        });
+    }
 });
 document.addEventListener('pointerdown', addButtonRipple, { passive: true });
 document.addEventListener('pointerdown', (event) => {
@@ -2864,6 +3363,7 @@ window.addEventListener('beforeunload', (event) => {
 
 // show or hide registration panel depending on username
 const restoredProfile = loadSavedProfile();
+loadGameplaySystems();
 if (registerPanel) {
     if (userProfile.username && userProfile.username.length) {
         hideWithAnimation(registerPanel, 'ui-exit-drop');
@@ -2876,6 +3376,10 @@ if (registerPanel) {
     }
 }
 updateSkillBar();
+renderDaily();
+renderShop();
+renderRaid();
+renderGuardState();
 
 function animateValue(element, start, end, duration = 700, formatter) {
     if (!element) return;
@@ -3023,6 +3527,10 @@ function updateMHBar() {
 }
 
 function changeMentalHealth(amount) {
+    if (amount < 0 && getCleanArchitectureActive()) {
+        typeText('Clean Architecture blocked Mental Health decay.');
+        return;
+    }
     userProfile.mentalHealth += amount;
 
     if (userProfile.mentalHealth < 0) userProfile.mentalHealth = 0;
@@ -3078,6 +3586,7 @@ function chaos() {
         "Chaos level increased by +1 🔥"
     ];
     typeText(chaos[Math.floor(Math.random() * chaos.length)]);
+    markDailyProgress('chaos');
     chargeSpecialMove(28);
 }
 
