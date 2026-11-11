@@ -2224,10 +2224,11 @@ body.rogue-file-active .owner-signature {
     bottom: 76px;
     z-index: 80;
     display: flex;
-    align-items: center;
-    gap: 12px;
-    width: min(310px, calc(100vw - 32px));
-    min-height: 76px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: min(340px, calc(100vw - 32px));
+    min-height: 150px;
     box-sizing: border-box;
     padding: 10px 13px 10px 10px;
     overflow: hidden;
@@ -2258,6 +2259,12 @@ body.rogue-file-active .owner-signature {
     box-shadow: 0 0 25px rgba(0, 255, 204, 0.32), 0 0 38px rgba(53, 167, 255, 0.12);
 }
 
+.owner-credit-row{display:flex;align-items:center;gap:12px;min-width:0;position:relative;z-index:1}
+.owner-credit-row>a{display:block;flex:0 0 54px;line-height:0}
+.owner-credit-divider{height:1px;margin:0 4px 0 66px;background:linear-gradient(90deg,rgba(0,255,204,.45),rgba(214,154,255,.5),transparent)}
+.inspiration-row .owner-kicker{color:#e0b0fa}
+.kitty-avatar{border-color:#d69aff;box-shadow:0 0 12px rgba(214,154,255,.38)}
+.owner-credit-row a:focus-visible{outline:3px solid #75dcff;outline-offset:4px;border-radius:50%}
 .owner-avatar {
     display: block;
     flex: 0 0 54px;
@@ -2317,11 +2324,12 @@ body.rogue-file-active .owner-signature {
         right: 8px;
         bottom: 78px;
         width: min(290px, calc(100vw - 16px));
-        min-height: 66px;
-        gap: 10px;
+        min-height: 136px;
+        gap: 7px;
         padding: 8px 10px;
         border-radius: 13px;
     }
+    .owner-credit-row>a{flex-basis:46px}
     .owner-avatar {
         flex-basis: 46px;
         width: 46px;
